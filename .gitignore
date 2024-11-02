@@ -1,0 +1,20 @@
+# Virtual Environment
+venv/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+
+# Environment variables
+.env
+
+# IDE specific files
+.vscode/
+.idea/
+
+# Log files
+*.log
+
+# Credentials or sensitive information
+config.ini
+credentials.json
