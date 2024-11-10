@@ -73,22 +73,24 @@ python3 src/main.py
 
 ## Project Structure
 
+```
 Sales_Data_Automation/
 ├── config/
-│ ├── sample.ini
-│ ├── config.ini (created by user)
-│ └── urls.py
+│   ├── sample.ini
+│   ├── config.ini (created by user)
+│   └── urls.py
 ├── src/
-│ ├── main.py
-│ ├── web_navigator.py
-│ └── logger_config.py
+│   ├── main.py
+│   ├── web_navigator.py
+│   └── logger_config.py
 ├── exports/
-│ └── (generated Excel files)
+│   └── (generated Excel files)
 ├── error_screenshots/
-│ └── (error screenshots if any)
+│   └── (error screenshots if any)
 ├── venv/
 ├── activate.sh
 └── README.md
+```
 
 ## Security Notes
 
