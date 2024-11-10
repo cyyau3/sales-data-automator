@@ -4,6 +4,7 @@ venv/
 # Python cache files
 __pycache__/
 *.py[cod]
+*.pyc
 
 # Environment variables
 .env
@@ -16,5 +17,11 @@ __pycache__/
 *.log
 
 # Credentials or sensitive information
-config.ini
 credentials.json
+config/config.ini
+config/urls.py
+
+#Screenshots Directory
+error_screenshots/
+exports/
+*.xlsx
