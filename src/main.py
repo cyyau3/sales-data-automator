@@ -62,81 +62,45 @@ def perform_ucd_automation(config):
         navigator.login(config['username'], config['password'])
         logger.info("Successfully logged in")
 
-        # Navigate to inventory page and extract data
+        # Create single Excel file for all reports
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        excel_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'exports',
+            f'sales_data_{timestamp}.xlsx'
+        )
+
+        # Export inventory data
         navigator.navigate_to_inventory()
-        logger.info("Successfully navigated to inventory page")
         inventory_df = navigator.extract_inventory_table()
-        logger.info(f"Successfully extracted {len(inventory_df)} inventory records")
+        navigator.export_to_excel(inventory_df, "inventory", excel_path=excel_path)
         
-        # Export inventory data to Excel
-        inventory_file = navigator.export_to_excel(inventory_df, "inventory")
-        logger.info(f"Successfully exported inventory data to {inventory_file}")
-
-        # Return to index page
-        logger.debug("About to return to index page...")
+        # Return to index and export monthly supply
         navigator.return_to_index()
-        logger.info("Returned to index page")
-
-        # Navigate to monthly supply page and extract data
         navigator.navigate_to_monthly_supply()
         navigator.set_monthly_supply_filter()
         supply_df, supply_title = navigator.extract_monthly_supply_table()
-        logger.info(f"Successfully extracted {len(supply_df)} monthly supply records")
-
-        # Export monthly supply data to Excel with Title
-        supply_file = navigator.export_to_excel(supply_df, "monthly_supply", title=supply_title)
-        logger.info(f"Successfully exported monthly supply data to {supply_file}")
-
-        # Return to index page for analysis reports - with retry
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                logger.debug(f"Attempting to return to index (attempt {attempt + 1}/{max_retries})...")
-                navigator.return_to_index()
-                logger.info("Successfully returned to index page")
-                break
-            except Exception as e:
-                if attempt == max_retries - 1:  # Last attempt
-                    logger.error("Failed all attempts to return to index")
-                    raise
-                logger.warning(f"Failed attempt {attempt + 1} to return to index, retrying...")
-                time.sleep(2)  # Wait before retry
-
-        # Navigate to analysis page
-        logger.debug("About to navigate to analysis report...")
+        navigator.export_to_excel(supply_df, "monthly_supply", title=supply_title, excel_path=excel_path)
+        
+        # Return to index and export analysis reports
+        navigator.return_to_index()
         navigator.navigate_to_analysis_report()
-        logger.info("Successfully navigated to analysis report page")
         
-        # Get customer analysis
-        logger.debug("About to set customer analysis filter...")
+        # Customer analysis
         navigator.set_analysis_report_filter(filter_type='customer')
-        logger.debug("About to extract customer analysis table...")
         customer_df = navigator.extract_analysis_table()
-        logger.info(f"Successfully extracted {len(customer_df)} customer analysis records")
-        customer_file = navigator.export_to_excel(customer_df, "customer_analysis")
-        logger.info(f"Successfully exported customer analysis to {customer_file}")
+        navigator.export_to_excel(customer_df, "customer_analysis", excel_path=excel_path)
         
-        # Get product analysis
+        # Product analysis
         navigator.set_analysis_report_filter(filter_type='product')
         product_df = navigator.extract_analysis_table()
-        logger.info(f"Successfully extracted {len(product_df)} product analysis records")
-        product_file = navigator.export_to_excel(product_df, "product_analysis")
-        logger.info(f"Successfully exported product analysis to {product_file}")
+        navigator.export_to_excel(product_df, "product_analysis", excel_path=excel_path)
 
-        # Keep the browser open
-        logger.info("Task completed. Browser remains open for manual interaction.")
-        
-        # Return the navigator instance
+        logger.info(f"All reports exported to {excel_path}")
         return navigator
 
-    except TimeoutException:
-        logger.error("Timed out waiting for page elements to load")
-        raise
-    except WebDriverException as e:
-        logger.error(f"WebDriver error occurred: {str(e)}")
-        raise
     except Exception as e:
-        logger.error(f"Unexpected error occurred: {str(e)}")
+        logger.error(f"Error in automation: {str(e)}")
         raise
 
 def main():

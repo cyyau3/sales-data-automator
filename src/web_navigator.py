@@ -562,21 +562,34 @@ class WebNavigator:
             raise
 
 
-    def export_to_excel(self, df, report_type, title=None):
-        """Export the DataFrame to Excel with report type specification and optional title"""
+    def export_to_excel(self, df, report_type, title=None, excel_path=None):
+        """Export the DataFrame to Excel with report type specification and optional title
+        Args:
+            df: DataFrame to export
+            report_type: Type of report (will be used as sheet name)
+            title: Optional title for the sheet
+            excel_path: Optional path to existing Excel file. If None, creates new file
+        Returns:
+            Path to the Excel file
+        """
         try:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"{report_type}_{timestamp}.xlsx"
+            # If no excel_path provided, create new file
+            if excel_path is None:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"sales_data_{timestamp}.xlsx"
+                
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                project_root = os.path.dirname(current_dir)
+                exports_dir = os.path.join(project_root, 'exports')
+                os.makedirs(exports_dir, exist_ok=True)
+                
+                excel_path = os.path.join(exports_dir, filename)
             
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            project_root = os.path.dirname(current_dir)
-            exports_dir = os.path.join(project_root, 'exports')
-            os.makedirs(exports_dir, exist_ok=True)
+            # Check if file exists to determine mode
+            mode = 'a' if os.path.exists(excel_path) else 'w'
             
-            excel_path = os.path.join(exports_dir, filename)
-            
-            # Create Excel writer object
-            with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
+            # Create Excel writer object with appropriate mode
+            with pd.ExcelWriter(excel_path, engine='openpyxl', mode=mode) as writer:
                 # Always write DataFrame, adjust startrow based on title presence
                 start_row = 1 if title else 0
                 df.to_excel(writer, sheet_name=report_type, index=False, startrow=start_row)
@@ -586,9 +599,9 @@ class WebNavigator:
                     worksheet = writer.sheets[report_type]
                     worksheet.cell(row=1, column=1, value=title)
             
-            logger.info(f"Successfully exported {report_type} data to {excel_path}")
+            logger.info(f"Successfully exported {report_type} to sheet in {excel_path}")
             return excel_path
-            
+                
         except Exception as e:
             logger.error(f"Failed to export to Excel: {str(e)}")
             raise
