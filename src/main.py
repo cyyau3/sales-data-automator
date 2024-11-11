@@ -11,6 +11,7 @@ from logger_config import logger
 from datetime import datetime
 import configparser
 import os
+import time
 
 def load_config():
     try:
@@ -72,6 +73,7 @@ def perform_ucd_automation(config):
         logger.info(f"Successfully exported inventory data to {inventory_file}")
 
         # Return to index page
+        logger.debug("About to return to index page...")
         navigator.return_to_index()
         logger.info("Returned to index page")
 
@@ -84,6 +86,42 @@ def perform_ucd_automation(config):
         # Export monthly supply data to Excel with Title
         supply_file = navigator.export_to_excel(supply_df, "monthly_supply", title=supply_title)
         logger.info(f"Successfully exported monthly supply data to {supply_file}")
+
+        # Return to index page for analysis reports - with retry
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                logger.debug(f"Attempting to return to index (attempt {attempt + 1}/{max_retries})...")
+                navigator.return_to_index()
+                logger.info("Successfully returned to index page")
+                break
+            except Exception as e:
+                if attempt == max_retries - 1:  # Last attempt
+                    logger.error("Failed all attempts to return to index")
+                    raise
+                logger.warning(f"Failed attempt {attempt + 1} to return to index, retrying...")
+                time.sleep(2)  # Wait before retry
+
+        # Navigate to analysis page
+        logger.debug("About to navigate to analysis report...")
+        navigator.navigate_to_analysis_report()
+        logger.info("Successfully navigated to analysis report page")
+        
+        # Get customer analysis
+        logger.debug("About to set customer analysis filter...")
+        navigator.set_analysis_report_filter(filter_type='customer')
+        logger.debug("About to extract customer analysis table...")
+        customer_df = navigator.extract_analysis_table()
+        logger.info(f"Successfully extracted {len(customer_df)} customer analysis records")
+        customer_file = navigator.export_to_excel(customer_df, "customer_analysis")
+        logger.info(f"Successfully exported customer analysis to {customer_file}")
+        
+        # Get product analysis
+        navigator.set_analysis_report_filter(filter_type='product')
+        product_df = navigator.extract_analysis_table()
+        logger.info(f"Successfully extracted {len(product_df)} product analysis records")
+        product_file = navigator.export_to_excel(product_df, "product_analysis")
+        logger.info(f"Successfully exported product analysis to {product_file}")
 
         # Keep the browser open
         logger.info("Task completed. Browser remains open for manual interaction.")

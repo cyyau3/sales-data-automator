@@ -13,6 +13,7 @@ import os
 import time
 import openpyxl
 import traceback
+from urls import URLConfig
 
 
 class WebNavigator:
@@ -38,12 +39,12 @@ class WebNavigator:
         try:
             # Navigate to main page
             logger.info("Navigating to main page...")
-            self.driver.get("https://www.ucd.com.tw")
+            self.driver.get(URLConfig.BASE_URL)
             
             # Wait for and click the login link in nav bar
             logger.info("Looking for login link...")
             login_link = self.wait.until(
-                EC.element_to_be_clickable((By.XPATH, "//a[contains(@href, '/user_menu/user_login_page.jsp')]"))
+                EC.element_to_be_clickable((By.XPATH, f"//a[contains(@href, '{URLConfig.LOGIN_PATH}')]"))
             )
             logger.info("Clicking login link...")
             login_link.click()
@@ -78,7 +79,7 @@ class WebNavigator:
             # Wait for redirect to member page
             logger.info("Waiting for redirect to member page...")
             self.wait.until(
-                EC.url_to_be("https://www.ucd.com.tw/user_menu/index.jsp")
+                EC.url_to_be(URLConfig.get_full_url(URLConfig.MEMBER_PATH))
             )
             
             logger.info("Successfully logged in")
@@ -96,19 +97,48 @@ class WebNavigator:
     def return_to_index(self):
         """Return to the member index page"""
         try:
-            return_link = self.wait.until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, "a.returnToNavi"))
-            )
-            return_link.click()
+            # Navigate directly to index page
+            self.driver.get(URLConfig.get_full_url(URLConfig.MEMBER_PATH))
             
-            # Wait for index page to load
+            # Additional wait for nav menu
             self.wait.until(
-                EC.url_to_be("https://www.ucd.com.tw/user_menu/index.jsp")
+                EC.presence_of_element_located((By.CLASS_NAME, "nav"))
             )
+            
             logger.info("Successfully returned to index page")
             
         except Exception as e:
             logger.error(f"Failed to return to index: {str(e)}")
+            self.save_screenshot("return_to_index_error")
+            raise
+
+    def filter_month_generator(self, year=None, month=None):
+        """Generate appropriate month and year for filtering"""
+        try:
+            current_date = datetime.now()
+            
+            # If no year/month provided, get previous month
+            if year is None and month is None:
+                if current_date.month == 1:
+                    year = current_date.year - 1
+                    month = 12
+                else:
+                    year = current_date.year
+                    month = current_date.month - 1
+            
+            # Validate month
+            if month < 1 or month > 12:
+                raise ValueError(f"Invalid month value: {month}")
+                
+            # Return both separate and combined formats
+            return {
+                'year': year,
+                'month': str(month).zfill(2),
+                'combined': f"{year}{str(month).zfill(2)}"  # e.g., "202410"
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to generate filter dates: {str(e)}")
             raise
 
     def navigate_to_inventory(self):
@@ -236,48 +266,35 @@ class WebNavigator:
     def set_monthly_supply_filter(self, year=None, month=None):
         """Set filter for monthly supply report"""
         try:
-            # Get current date if year/month not provided
-            current_date = datetime.now()
+            # Get date values
+            date_values = self.filter_month_generator(year, month)
             
-            if year is None and month is None:
-                # If current month is January, get December of previous year
-                if current_date.month == 1:
-                    year = current_date.year - 1
-                    month = 12
-                else:
-                    year = current_date.year
-                    month = current_date.month - 1
-            
-            # Ensure month is within valid range (1-12)
-            if month < 1 or month > 12:
-                raise ValueError(f"Invalid month value: {month}")
-
-            # Wait for and select year field
+            # Select year
             year_select = self.wait.until(
                 EC.presence_of_element_located((By.NAME, "p_year"))
             )
             year_dropdown = Select(year_select)
-            year_dropdown.select_by_value(str(year))
+            year_dropdown.select_by_value(str(date_values['year']))
 
-            # Wait for and select month field
+            # Select month
             month_select = self.wait.until(
                 EC.presence_of_element_located((By.NAME, "p_period"))
             )
             month_dropdown = Select(month_select)
-            month_dropdown.select_by_value(str(month).zfill(2))  # Ensure two digits
+            month_dropdown.select_by_value(date_values['month'])
 
-            # Find and click submit button
+            # Submit
             submit_button = self.wait.until(
                 EC.element_to_be_clickable((By.NAME, "B1"))
             )
             submit_button.click()
 
-            # Wait for table to load after filter submission
+            # Wait for results
             self.wait.until(
                 EC.presence_of_element_located((By.CLASS_NAME, "sortable"))
             )
             
-            logger.info(f"Successfully set filter for year {year} month {month}")
+            logger.info(f"Successfully set filter for {date_values['year']}/{date_values['month']}")
 
         except Exception as e:
             logger.error(f"Failed to set monthly supply filter: {str(e)}")
@@ -382,6 +399,169 @@ class WebNavigator:
             logger.error(f"Failed to extract monthly supply table: {str(e)}")
             raise
 
+    def navigate_to_analysis_report(self):
+        """Navigate to the analysis report page"""
+        try:
+            nav_div = self.wait.until(
+                EC.presence_of_element_located((By.CLASS_NAME, "nav"))
+            )
+            
+            # Update XPath to match the exact menu text
+            analysis_link = self.wait.until(
+                EC.element_to_be_clickable(
+                    (By.XPATH, "//a[contains(text(), '[606062] 銷售資料綜合分析')]")
+                )
+            )
+            analysis_link.click()
+            
+            # Wait for the filter form to load
+            self.wait.until(
+                EC.presence_of_element_located((By.NAME, "b_ym"))
+            )
+            
+            logger.debug("Analysis report page loaded")  # Add debug logging
+            logger.info("Successfully navigated to analysis report page")
+            
+        except TimeoutException:
+            logger.error("Timeout waiting for analysis report page elements")
+            self.save_screenshot("analysis_navigation_error")
+            raise
+        except Exception as e:
+            logger.error(f"Failed to navigate to analysis report page: {str(e)}")
+            self.save_screenshot("analysis_navigation_error")
+            raise
+    
+    def set_analysis_report_filter(self, year=None, month=None, filter_type='customer'):
+        """Set filter for analysis report
+        Args:
+            year: Optional year to filter
+            month: Optional month to filter
+            filter_type: 'customer' or 'product' to determine which checkboxes to select
+        """
+        try:
+            # Get date values
+            date_values = self.filter_month_generator(year, month)
+            combined_date = date_values['combined']
+            
+            logger.debug(f"Setting analysis filter for {combined_date}, type: {filter_type}")
+            
+            # Select start and end dates (same month for our case)
+            for field_name in ['b_ym', 'e_ym']:
+                date_select = self.wait.until(
+                    EC.presence_of_element_located((By.NAME, field_name))
+                )
+                date_dropdown = Select(date_select)
+                date_dropdown.select_by_value(combined_date)
+            
+            # Clear existing selections
+            checkboxes = self.driver.find_elements(By.XPATH, "//input[@type='checkbox']")
+            for checkbox in checkboxes:
+                if checkbox.is_selected():
+                    checkbox.click()
+            
+            # Select appropriate checkboxes based on filter type
+            if filter_type == 'customer':
+                # Wait and select customer-related checkboxes
+                self.wait.until(
+                    EC.element_to_be_clickable((By.NAME, "acc_code"))
+                ).click()
+                self.wait.until(
+                    EC.element_to_be_clickable((By.NAME, "acc_cat1"))
+                ).click()
+            else:  # product
+                # Wait and select product-related checkboxes
+                self.wait.until(
+                    EC.element_to_be_clickable((By.NAME, "stk_c"))
+                ).click()
+                self.wait.until(
+                    EC.element_to_be_clickable((By.NAME, "acc_cat"))
+                ).click()
+            
+            # Submit form
+            submit_button = self.wait.until(
+                EC.element_to_be_clickable((By.NAME, "B1"))
+            )
+            submit_button.click()
+            
+            # Wait for results table
+            self.wait.until(
+                EC.presence_of_element_located((By.XPATH, "//table[@bgcolor='#008080']"))
+            )
+            
+            logger.info(f"Successfully set analysis filter type: {filter_type} for {combined_date}")
+
+        except Exception as e:
+            logger.error(f"Failed to set analysis report filter: {str(e)}")
+            self.save_screenshot("analysis_filter_error")
+            raise
+
+    def extract_analysis_table(self):
+        """Extract data from analysis report table based on current filter"""
+        try:
+            # Wait for table to be present
+            table = self.wait.until(
+                EC.presence_of_element_located((By.XPATH, "//table[@bgcolor='#008080']"))
+            )
+            
+            # Get headers
+            headers = []
+            header_row = table.find_element(By.TAG_NAME, "tr")
+            for th in header_row.find_elements(By.TAG_NAME, "td"):
+                headers.append(th.text.strip())
+            
+            # Initialize lists to store data
+            data = []
+            
+            # Get all rows except header
+            rows = table.find_elements(By.TAG_NAME, "tr")[1:]  # Skip header row
+            
+            # Process regular rows
+            for row in rows:
+                cells = row.find_elements(By.TAG_NAME, "td")
+                row_data = []
+                
+                # Check if this is the total row
+                is_total = False
+                if cells[0].get_attribute("bgcolor") == "#CCFF66":
+                    is_total = True
+                
+                for cell in cells:
+                    value = cell.text.strip()
+                    # If it's a total row and the cell spans multiple columns
+                    if is_total and cell.get_attribute("colspan"):
+                        row_data.append("合計")  # Add '合計' for the first column
+                        # Add empty strings for spanned columns
+                        for _ in range(int(cell.get_attribute("colspan")) - 1):
+                            row_data.append("")
+                    else:
+                        row_data.append(value)
+                        
+                if row_data:  # Only add non-empty rows
+                    data.append(row_data)
+            
+            # Create DataFrame
+            df = pd.DataFrame(data, columns=headers)
+            
+            # Convert numeric columns
+            numeric_columns = ['出量', '退量', '淨量']
+            for col in numeric_columns:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col].replace('', '0'), errors='coerce')
+            
+            # Convert 退率 (return rate) - remove % and convert to numeric
+            if '退率' in df.columns:
+                df['退率'] = df['退率'].replace('', '0')
+                df['退率'] = df['退率'].str.rstrip('%').astype(float)
+            
+            logger.info(f"Successfully extracted {len(df)} analysis records")
+            return df
+                
+        except Exception as e:
+            logger.error(f"Failed to extract analysis table: {str(e)}")
+            self.save_screenshot("analysis_table_extraction_error")
+            raise
+
+
     def export_to_excel(self, df, report_type, title=None):
         """Export the DataFrame to Excel with report type specification and optional title"""
         try:
@@ -435,7 +615,9 @@ class WebNavigator:
             # Find and click the logout link in nav bar
             logger.info("Looking for logout link...")
             logout_link = self.wait.until(
-                EC.element_to_be_clickable((By.XPATH, "//a[contains(@href, '/user_menu/user_logout.jsp')][text()='會員登出']"))
+                EC.element_to_be_clickable(
+                    (By.XPATH, f"//a[contains(@href, '{URLConfig.LOGOUT_PATH}')][text()='會員登出']")
+                )
             )
             logger.info("Clicking logout link...")
             logout_link.click()
@@ -447,7 +629,7 @@ class WebNavigator:
             
             # Wait for redirect to homepage
             self.wait.until(
-                lambda driver: driver.current_url == "https://www.ucd.com.tw/index.jsp"
+                lambda driver: driver.current_url == URLConfig.BASE_URL + "/index.jsp"
             )
             
             # Clear cookies and session storage
@@ -480,3 +662,69 @@ class WebNavigator:
             return logout_link.is_displayed()
         except:
             return False
+
+    def extract_analysis_table(self):
+        """Extract data from analysis report table based on current filter"""
+        try:
+            # Wait for table to be present
+            table = self.wait.until(
+                EC.presence_of_element_located((By.XPATH, "//table[@bgcolor='#008080']"))
+            )
+            
+            # Get headers
+            headers = []
+            header_row = table.find_element(By.TAG_NAME, "tr")
+            for th in header_row.find_elements(By.TAG_NAME, "td"):
+                headers.append(th.text.strip())
+            
+            # Initialize lists to store data
+            data = []
+            
+            # Get all rows except header
+            rows = table.find_elements(By.TAG_NAME, "tr")[1:]  # Skip header row
+            
+            # Process regular rows
+            for row in rows:
+                cells = row.find_elements(By.TAG_NAME, "td")
+                row_data = []
+                
+                # Check if this is the total row
+                is_total = False
+                if cells[0].get_attribute("bgcolor") == "#CCFF66":
+                    is_total = True
+                
+                for cell in cells:
+                    value = cell.text.strip()
+                    # If it's a total row and the cell spans multiple columns
+                    if is_total and cell.get_attribute("colspan"):
+                        row_data.append("合計")  # Add '合計' for the first column
+                        # Add empty strings for spanned columns
+                        for _ in range(int(cell.get_attribute("colspan")) - 1):
+                            row_data.append("")
+                    else:
+                        row_data.append(value)
+                        
+                if row_data:  # Only add non-empty rows
+                    data.append(row_data)
+            
+            # Create DataFrame
+            df = pd.DataFrame(data, columns=headers)
+            
+            # Convert numeric columns
+            numeric_columns = ['出量', '退量', '淨量']
+            for col in numeric_columns:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col].replace('', '0'), errors='coerce')
+            
+            # Convert 退率 (return rate) - remove % and convert to numeric
+            if '退率' in df.columns:
+                df['退率'] = df['退率'].replace('', '0')
+                df['退率'] = df['退率'].str.rstrip('%').astype(float)
+            
+            logger.info(f"Successfully extracted {len(df)} analysis records")
+            return df
+                
+        except Exception as e:
+            logger.error(f"Failed to extract analysis table: {str(e)}")
+            self.save_screenshot("analysis_table_extraction_error")
+            raise

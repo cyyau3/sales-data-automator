@@ -20,7 +20,7 @@ __pycache__/
 # Credentials or sensitive information
 credentials.json
 config/config.ini
-config/urls.py
+urls.py
 
 #Screenshots Directory
 error_screenshots/
