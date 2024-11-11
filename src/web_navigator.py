@@ -8,30 +8,45 @@ from selenium.common.exceptions import TimeoutException
 from logger_config import logger
 from datetime import datetime
 import pandas as pd
-import numpy as np
 import os
 import time
 import openpyxl
+from openpyxl.styles import Alignment
 import traceback
 from urls import URLConfig
 from selenium.webdriver.chrome.options import Options
+import subprocess
+from pathlib import Path
+import re
 
 
 class WebNavigator:
-    def __init__(self, timeout=10):
-        """Initialize WebNavigator with Chrome options"""
+    def __init__(self, timeout=30):
+        """Initialize WebNavigator with directories setup"""
+        self.timeout = timeout
+        
+        # Setup directories using Path
+        self._project_root = Path(__file__).parent.parent
+        self._exports_dir = self._project_root / 'exports'
+        self._downloads_dir = self._exports_dir / 'downloads'
+        
+        # Create necessary directories
+        self._exports_dir.mkdir(exist_ok=True)
+        self._downloads_dir.mkdir(exist_ok=True)
+        
+        # Store string versions for JSON-serializable contexts
+        self.project_root = str(self._project_root)
+        self.exports_dir = str(self._exports_dir)
+        self.downloads_dir = str(self._downloads_dir)
+        
+        logger.info(f"Downloads directory set to: {self.downloads_dir}")
+        
         try:
             chrome_options = Options()
             
-            # Set up downloads directory
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            project_root = os.path.dirname(current_dir)
-            downloads_dir = os.path.join(project_root, 'exports', 'downloads')
-            os.makedirs(downloads_dir, exist_ok=True)
-            
             # Configure Chrome options for automatic downloads
             chrome_options.add_experimental_option('prefs', {
-                'download.default_directory': downloads_dir,
+                'download.default_directory': self.downloads_dir,
                 'download.prompt_for_download': False,
                 'download.directory_upgrade': True,
                 'safebrowsing.enabled': True
@@ -41,11 +56,18 @@ class WebNavigator:
             self.driver = webdriver.Chrome(options=chrome_options)
             self.driver.maximize_window()
             self.wait = WebDriverWait(self.driver, timeout)
-            self.downloads_dir = downloads_dir  # Store downloads directory for later use
             
         except Exception as e:
             logger.error(f"Failed to initialize WebNavigator: {str(e)}")
             raise
+
+    def _get_downloads_path(self) -> Path:
+        """Get downloads directory as Path object"""
+        return Path(self.downloads_dir)
+
+    def _get_exports_path(self) -> Path:
+        """Get exports directory as Path object"""
+        return Path(self.exports_dir)
 
     def login(self, username, password):
         """Login to UCD website"""
@@ -332,7 +354,7 @@ class WebNavigator:
             
             # Convert columns as before
             numeric_columns = ['定價', '存量', '存額', '月進量', '退量', '進淨量', 
-                            '出量', '退量', '出淨量', '年進量', '退量', '進淨量', 
+                            '出量', '退量', '出淨量', '年量', '退量', '進淨量', 
                             '出量', '退量', '出淨量']
             
             date_columns = ['發書日']
@@ -843,30 +865,189 @@ class WebNavigator:
             raise
 
     def process_downloaded_excel(self, download_path, report_type):
-        """Process downloaded Excel file and convert to modern format using pandas
-        Args:
-            download_path: Path to the downloaded .xls file
-            report_type: Type of report ('week' or 'customer')
-        Returns:
-            Path to the converted .xlsx file
-        """
+        """Convert downloaded Excel files to xlsx using LibreOffice"""
         try:
-            logger.debug(f"Processing downloaded excel file: {download_path}")
-            
-            # Read the old Excel file
-            df = pd.read_excel(download_path, engine='xlrd')
-            
-            # Generate new filename
-            new_path = download_path.replace('.xls', '_converted.xlsx')
-            
-            # Save as modern Excel format
-            df.to_excel(new_path, index=False, engine='openpyxl')
-            
-            logger.info(f"Successfully converted Excel file to: {new_path}")
-            return new_path
+            # Get the paths exactly as strings, no Path objects
+            input_path = str(download_path)
+            output_dir = str(self._get_downloads_path())
 
+            print(f"Input path: {input_path}")
+            print(f"Output directory: {output_dir}")
+            print("Files before conversion:", os.listdir(output_dir))
+
+            # Full path to the soffice executable on MacOS
+            libreoffice_executable = "/Applications/LibreOffice.app/Contents/MacOS/soffice"
+
+            # Construct the command with additional parameters
+            cmd = [
+                libreoffice_executable,
+                "--headless",
+                "--norestore",
+                "--nofirststartwizard",
+                "--nologo",
+                "--convert-to", "xlsx:Calc MS Excel 2007 XML",
+                "--outdir", output_dir,
+                input_path
+            ]
+
+            print(f"Running command: {' '.join(cmd)}")
+
+            # Kill any existing soffice processes
+            os.system("pkill soffice")
+            time.sleep(1)
+
+            # Run the command
+            result = subprocess.run(
+                cmd, 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=30
+            )
+            
+            print("Command stdout:", result.stdout)
+            print("Command stderr:", result.stderr)
+            time.sleep(3)
+            
+            print("Files after conversion:", os.listdir(output_dir))
+            
+            if result.returncode == 0:
+                print("Conversion successful!")
+                
+                output_path = os.path.join(output_dir, os.path.splitext(os.path.basename(input_path))[0] + '.xlsx')
+                print(f"Expected output path: {output_path}")
+                
+                if os.path.exists(output_path):
+                    print(f"Output file exists at: {output_path}")
+                    print(f"File size: {os.path.getsize(output_path)} bytes")
+                    
+                    # Clean up the original .xls file using os.remove instead of Path.unlink
+                    try:
+                        os.remove(input_path)
+                        print(f"Cleaned up original file: {input_path}")
+                    except Exception as e:
+                        print(f"Warning: Could not remove original file: {e}")
+                    
+                    return output_path
+                else:
+                    print(f"Output file does NOT exist at: {output_path}")
+                    xlsx_files = [f for f in os.listdir(output_dir) if f.endswith('.xlsx')]
+                    print(f"All xlsx files in directory: {xlsx_files}")
+                    raise FileNotFoundError(f"Converted file not found at {output_path}")
+            else:
+                print("Conversion failed:")
+                print(result.stderr)
+                raise Exception(f"LibreOffice conversion failed: {result.stderr}")
+        
         except Exception as e:
-            logger.error(f"Failed to process downloaded excel: {str(e)}")
-            self.save_screenshot("excel_processing_error")
+            print(f"An error occurred: {e}")
+            logger.error(f"Failed to convert Excel file: {str(e)}")
+            self.save_screenshot("excel_conversion_error")
             raise
 
+    def append_weekly_reports(self, excel_path):
+        """Append both weekly report files to the main report Excel file"""
+        try:
+            excel_path = Path(excel_path).resolve()
+            downloads_dir = self._get_downloads_path()
+            
+            # Ensure downloads directory exists
+            downloads_dir.mkdir(exist_ok=True)
+
+            if not excel_path.suffix.lower() in ['.xlsx', '.xls']:
+                raise SecurityError("Invalid target file type")
+
+            report_configs = {
+                "sum_by_week": {
+                    "filename": "連鎖通路商品週銷售報表(依週期).xls",
+                    "sheet_name": "Weekly Sales Summary"
+                },
+                "sum_by_customer": {
+                    "filename": "連鎖通路商品週銷售報表(依通路).xls",
+                    "sheet_name": "Customer Sales Summary"
+                }
+            }
+
+            for report_type, config in report_configs.items():
+                try:
+                    # Wait for file download
+                    file_path = os.path.join(self.downloads_dir, config["filename"])
+                    wait_start = time.time()
+                    while not os.path.exists(file_path) and time.time() - wait_start < 30:
+                        time.sleep(0.5)
+
+                    if not os.path.exists(file_path):
+                        raise FileNotFoundError(f"Download timeout: {config['filename']}")
+                    
+                    # Print file info
+                    print(f"Found input file: {file_path}")
+                    print(f"File size: {os.path.getsize(file_path)} bytes")
+                    
+                    # Convert XLS to XLSX
+                    xlsx_path = self.process_downloaded_excel(file_path, report_type)
+                    
+                    # Read the converted file
+                    df = pd.read_excel(xlsx_path, engine='openpyxl')
+                    
+                    # Get the header value from the first cell
+                    header_value = df.columns[0]
+                    
+                    # Reset the column names to be blank after the first column
+                    new_columns = [header_value] + [''] * (len(df.columns) - 1)
+                    df.columns = new_columns
+
+                    # Append to main report with merged header
+                    with pd.ExcelWriter(str(excel_path), engine='openpyxl', mode='a') as writer:
+                        if config["sheet_name"] in writer.book.sheetnames:
+                            idx = writer.book.sheetnames.index(config["sheet_name"])
+                            writer.book.remove(writer.book.worksheets[idx])
+                        
+                        # Write the DataFrame
+                        df.to_excel(
+                            writer,
+                            sheet_name=config["sheet_name"],
+                            index=False
+                        )
+                        
+                        # Get the worksheet
+                        worksheet = writer.book[config["sheet_name"]]
+                        
+                        # Merge the header cells
+                        worksheet.merge_cells(
+                            start_row=1,
+                            start_column=1,
+                            end_row=1,
+                            end_column=len(df.columns)
+                        )
+                        
+                        # Set alignment for merged cell
+                        merged_cell = worksheet.cell(row=1, column=1)
+                        merged_cell.alignment = openpyxl.styles.Alignment(
+                            horizontal='center',
+                            vertical='center'
+                        )
+
+                    logger.info(f"Successfully appended {config['filename']} to main report")
+
+                    # Cleanup using os.remove
+                    try:
+                        if os.path.exists(xlsx_path):
+                            os.remove(xlsx_path)
+                    except Exception as e:
+                        logger.warning(f"Could not remove temporary file: {e}")
+
+                except Exception as e:
+                    logger.error(f"Failed to append {config['filename']}: {str(e)}")
+                    self.save_screenshot(f"report_append_error_{report_type}")
+                    raise
+
+            return str(excel_path)
+
+        except Exception as e:
+            logger.error(f"Failed to append weekly reports: {str(e)}")
+            self.save_screenshot("weekly_reports_append_error")
+            raise
+
+# Custom exception for security-related errors
+class SecurityError(Exception):
+    pass
