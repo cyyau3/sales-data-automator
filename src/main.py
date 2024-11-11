@@ -96,6 +96,20 @@ def perform_ucd_automation(config):
         product_df = navigator.extract_analysis_table()
         navigator.export_to_excel(product_df, "product_analysis", excel_path=excel_path)
 
+        # Return to index and navigate to sum by week reports
+        navigator.return_to_index()
+        navigator.navigate_to_sum_by_week()
+        
+        # Process weekly report
+        logger.info("Processing sum by week report (weekly)")
+        navigator.set_sum_by_week_filter(report_type='week')
+        
+        # Process customer report
+        logger.info("Processing sum by week report (customer)")
+        navigator.return_to_index()
+        navigator.navigate_to_sum_by_week()
+        navigator.set_sum_by_week_filter(report_type='customer')
+
         logger.info(f"All reports exported to {excel_path}")
         return navigator
 

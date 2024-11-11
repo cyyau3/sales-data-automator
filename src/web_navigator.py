@@ -14,26 +14,39 @@ import time
 import openpyxl
 import traceback
 from urls import URLConfig
+from selenium.webdriver.chrome.options import Options
 
 
 class WebNavigator:
-    def __init__(self, timeout=30):
-        self.timeout = timeout
+    def __init__(self, timeout=10):
+        """Initialize WebNavigator with Chrome options"""
+        try:
+            chrome_options = Options()
+            
+            # Set up downloads directory
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.dirname(current_dir)
+            downloads_dir = os.path.join(project_root, 'exports', 'downloads')
+            os.makedirs(downloads_dir, exist_ok=True)
+            
+            # Configure Chrome options for automatic downloads
+            chrome_options.add_experimental_option('prefs', {
+                'download.default_directory': downloads_dir,
+                'download.prompt_for_download': False,
+                'download.directory_upgrade': True,
+                'safebrowsing.enabled': True
+            })
+            
+            # Initialize Chrome WebDriver with options
+            self.driver = webdriver.Chrome(options=chrome_options)
+            self.driver.maximize_window()
+            self.wait = WebDriverWait(self.driver, timeout)
+            self.downloads_dir = downloads_dir  # Store downloads directory for later use
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize WebNavigator: {str(e)}")
+            raise
 
-        # Initialize driver with options
-        options = webdriver.ChromeOptions()
-        options.add_argument('--start-maximized')
-        options.add_argument('--lang=zh-TW')
-
-        # Add incognito mode
-        options.add_argument('--incognito')
-        options.add_argument('--disable-cache')
-        options.add_argument('--disable-application-cache')
-        options.add_argument('--disable-offline-load-stale-cache')
-        
-        self.driver = webdriver.Chrome(options=options)
-        self.wait = WebDriverWait(self.driver, self.timeout) 
-        
     def login(self, username, password):
         """Login to UCD website"""
         try:
@@ -741,3 +754,119 @@ class WebNavigator:
             logger.error(f"Failed to extract analysis table: {str(e)}")
             self.save_screenshot("analysis_table_extraction_error")
             raise
+
+    def navigate_to_sum_by_week(self):
+        """Navigate to the sum by week menu page"""
+        try:
+            # Wait for navigation menu
+            nav_div = self.wait.until(
+                EC.presence_of_element_located((By.CLASS_NAME, "nav"))
+            )
+            
+            # Find and click the sum by week link
+            sum_by_week_link = self.wait.until(
+                EC.element_to_be_clickable(
+                    (By.XPATH, "//a[contains(text(), '[606066] 連鎖通路商品週銷售報表')]")
+                )
+            )
+            sum_by_week_link.click()
+            
+            logger.info("Successfully navigated to sum by week menu page")
+            
+        except Exception as e:
+            logger.error(f"Failed to navigate to sum by week menu: {str(e)}")
+            self.save_screenshot("sum_by_week_navigation_error")
+            raise
+
+    def set_sum_by_week_filter(self, report_type='week', year=None, month=None):
+        """Set filter for sum by week report
+        Args:
+            report_type: 'week' for weekly report or 'customer' for customer report
+            year: Year to filter (defaults to current year)
+            month: Month to filter (defaults to previous month)
+        """
+        try:
+            # First navigate to the correct form
+            if report_type == 'week':
+                form_link = self.wait.until(
+                    EC.element_to_be_clickable(
+                        (By.XPATH, "//a[contains(text(), '連鎖通路商品週銷售報表(依週期)')]")
+                    )
+                )
+            else:
+                form_link = self.wait.until(
+                    EC.element_to_be_clickable(
+                        (By.XPATH, "//a[contains(text(), '連鎖通路商品週銷售報表(依客戶)')]")
+                    )
+                )
+            form_link.click()
+
+            # Use filter_month_generator to get the target month
+            date_values = self.filter_month_generator(year, month)
+            target_month = date_values['combined']
+            logger.debug(f"Filtering for {date_values['year']}/{date_values['month']}")
+
+            # Get all options for start and end dates
+            start_select = Select(self.wait.until(
+                EC.presence_of_element_located((By.NAME, "mas_date_b"))
+            ))
+            end_select = Select(self.wait.until(
+                EC.presence_of_element_located((By.NAME, "mas_date_e"))
+            ))
+
+            # Get all options
+            start_options = [opt.get_attribute('value') for opt in start_select.options]
+            end_options = [opt.get_attribute('value') for opt in end_select.options]
+
+            # Filter options for the target month
+            month_start_options = [opt for opt in start_options if opt.startswith(target_month)]
+            month_end_options = [opt for opt in end_options if opt.startswith(target_month)]
+
+            if not month_start_options or not month_end_options:
+                raise ValueError(f"No options found for {date_values['year']}/{date_values['month']}")
+
+            # Select first and last options for the month
+            start_select.select_by_value(month_start_options[0])
+            end_select.select_by_value(month_end_options[-1])
+
+            # Submit form
+            submit_button = self.wait.until(
+                EC.element_to_be_clickable((By.NAME, "B1"))
+            )
+            submit_button.click()
+
+            logger.info(f"Successfully set filter for sum by {report_type} report: {date_values['year']}/{date_values['month']}")
+
+        except Exception as e:
+            logger.error(f"Failed to set sum by week filter: {str(e)}")
+            self.save_screenshot("sum_by_week_filter_error")
+            raise
+
+    def process_downloaded_excel(self, download_path, report_type):
+        """Process downloaded Excel file and convert to modern format using pandas
+        Args:
+            download_path: Path to the downloaded .xls file
+            report_type: Type of report ('week' or 'customer')
+        Returns:
+            Path to the converted .xlsx file
+        """
+        try:
+            logger.debug(f"Processing downloaded excel file: {download_path}")
+            
+            # Read the old Excel file
+            df = pd.read_excel(download_path, engine='xlrd')
+            
+            # Generate new filename
+            new_path = download_path.replace('.xls', '_converted.xlsx')
+            
+            # Save as modern Excel format
+            df.to_excel(new_path, index=False, engine='openpyxl')
+            
+            logger.info(f"Successfully converted Excel file to: {new_path}")
+            return new_path
+
+        except Exception as e:
+            logger.error(f"Failed to process downloaded excel: {str(e)}")
+            self.save_screenshot("excel_processing_error")
+            raise
+
