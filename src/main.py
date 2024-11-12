@@ -101,12 +101,16 @@ def perform_ucd_automation(config):
         product_df = navigator.extract_analysis_table()
         navigator.export_to_excel(product_df, "product_analysis", excel_path=str(excel_path))
 
-        # Process weekly and monthly summary reports using new generic functions
+        # Process weekly and monthly summary reports
         navigator.return_to_index()
         navigator.process_summary_reports(str(excel_path), 'weekly')
         
         navigator.return_to_index()
         navigator.process_summary_reports(str(excel_path), 'monthly')
+
+        # Process order reports (purchase and return)
+        navigator.return_to_index()
+        navigator.process_order_reports(str(excel_path))
 
         logger.info(f"All reports exported to {excel_path}")
         return navigator

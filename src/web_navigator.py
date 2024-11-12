@@ -17,7 +17,7 @@ from urls import URLConfig
 from selenium.webdriver.chrome.options import Options
 import subprocess
 from pathlib import Path
-import re
+import calendar
 
 
 class WebNavigator:
@@ -616,7 +616,6 @@ class WebNavigator:
             self.save_screenshot("analysis_table_extraction_error")
             raise
 
-
     def export_to_excel(self, df, report_type, title=None, excel_path=None):
         """Export the DataFrame to Excel with report type specification and optional title
         Args:
@@ -820,69 +819,6 @@ class WebNavigator:
             self.save_screenshot("sum_by_week_navigation_error")
             raise
 
-    # def set_sum_by_week_filter(self, report_type='week', year=None, month=None):
-    #     """Set filter for sum by week report
-    #     Args:
-    #         report_type: 'week' for weekly report or 'customer' for customer report
-    #         year: Year to filter (defaults to current year)
-    #         month: Month to filter (defaults to previous month)
-    #     """
-    #     try:
-    #         # First navigate to the correct form
-    #         if report_type == 'week':
-    #             form_link = self.wait.until(
-    #                 EC.element_to_be_clickable(
-    #                     (By.XPATH, "//a[contains(text(), '連鎖通路商品週銷售報表(依週期)')]")
-    #             )
-    #         else:
-    #             form_link = self.wait.until(
-    #                 EC.element_to_be_clickable(
-    #                     (By.XPATH, "//a[contains(text(), '連鎖通路商品週銷售報表(依客戶)')]")
-    #                 )
-    #             )
-    #         form_link.click()
-
-    #         # Use filter_month_generator to get the target month
-    #         date_values = self.filter_month_generator(year, month)
-    #         target_month = date_values['combined']
-    #         logger.debug(f"Filtering for {date_values['year']}/{date_values['month']}")
-
-    #         # Get all options for start and end dates
-    #         start_select = Select(self.wait.until(
-    #             EC.presence_of_element_located((By.NAME, "mas_date_b"))
-    #         ))
-    #         end_select = Select(self.wait.until(
-    #             EC.presence_of_element_located((By.NAME, "mas_date_e"))
-    #         ))
-
-    #         # Get all options
-    #         start_options = [opt.get_attribute('value') for opt in start_select.options]
-    #         end_options = [opt.get_attribute('value') for opt in end_select.options]
-
-    #         # Filter options for the target month
-    #         month_start_options = [opt for opt in start_options if opt.startswith(target_month)]
-    #         month_end_options = [opt for opt in end_options if opt.startswith(target_month)]
-
-    #         if not month_start_options or not month_end_options:
-    #             raise ValueError(f"No options found for {date_values['year']}/{date_values['month']}")
-
-    #         # Select first and last options for the month
-    #         start_select.select_by_value(month_start_options[0])
-    #         end_select.select_by_value(month_end_options[-1])
-
-    #         # Submit form
-    #         submit_button = self.wait.until(
-    #             EC.element_to_be_clickable((By.NAME, "B1"))
-    #         )
-    #         submit_button.click()
-
-    #         logger.info(f"Successfully set filter for sum by {report_type} report: {date_values['year']}/{date_values['month']}")
-
-    #     except Exception as e:
-    #         logger.error(f"Failed to set sum by week filter: {str(e)}")
-    #         self.save_screenshot("sum_by_week_filter_error")
-    #         raise
-
     def process_downloaded_excel(self, download_path, report_type):
         """Convert downloaded Excel files to xlsx using LibreOffice"""
         try:
@@ -963,120 +899,6 @@ class WebNavigator:
             logger.error(f"Failed to convert Excel file: {str(e)}")
             self.save_screenshot("excel_conversion_error")
             raise
-
-    # def append_weekly_reports(self, excel_path):
-    #     """Append both weekly report files to the main report Excel file"""
-    #     try:
-    #         excel_path = Path(excel_path).resolve()
-    #         downloads_dir = self._get_downloads_path()
-            
-    #         # Ensure downloads directory exists
-    #         downloads_dir.mkdir(exist_ok=True)
-
-    #         if not excel_path.suffix.lower() in ['.xlsx', '.xls']:
-    #             raise SecurityError("Invalid target file type")
-
-    #         report_configs = {
-    #             # configs for weekly reports
-    #             "sum_by_week": {
-    #                 "filename": "連鎖通路商品週銷售報表(依週期).xls",
-    #                 "sheet_name": "Weekly Sales Summary"
-    #             },
-    #             "sum_by_customer": {
-    #                 "filename": "連鎖通路商品週銷售報表(依通路).xls",
-    #                 "sheet_name": "Customer Sales Summary"
-    #             },
-    #             # configs for monthly reports
-    #             "sum_by_month": {
-    #                 "filename": "連鎖通路商品月銷售報表(依期間).xls",
-    #                 "sheet_name": "Monthly Summary"
-    #             },
-    #             "sum_by_month_customer": {
-    #                 "filename": "連鎖通路商品月銷售報表(依客戶).xls",
-    #                 "sheet_name": "Monthly Customer Summary"
-    #             }   
-    #         }
-
-    #         for report_type, config in report_configs.items():
-    #             try:
-    #                 # Wait for file download
-    #                 file_path = os.path.join(self.downloads_dir, config["filename"])
-    #                 wait_start = time.time()
-    #                 while not os.path.exists(file_path) and time.time() - wait_start < 30:
-    #                     time.sleep(0.5)
-
-    #                 if not os.path.exists(file_path):
-    #                     raise FileNotFoundError(f"Download timeout: {config['filename']}")
-                    
-    #                 # Print file info
-    #                 print(f"Found input file: {file_path}")
-    #                 print(f"File size: {os.path.getsize(file_path)} bytes")
-                    
-    #                 # Convert XLS to XLSX
-    #                 xlsx_path = self.process_downloaded_excel(file_path, report_type)
-                    
-    #                 # Read the converted file
-    #                 df = pd.read_excel(xlsx_path, engine='openpyxl')
-                    
-    #                 # Get the header value from the first cell
-    #                 header_value = df.columns[0]
-                    
-    #                 # Reset the column names to be blank after the first column
-    #                 new_columns = [header_value] + [''] * (len(df.columns) - 1)
-    #                 df.columns = new_columns
-
-    #                 # Append to main report with merged header
-    #                 with pd.ExcelWriter(str(excel_path), engine='openpyxl', mode='a') as writer:
-    #                     if config["sheet_name"] in writer.book.sheetnames:
-    #                         idx = writer.book.sheetnames.index(config["sheet_name"])
-    #                         writer.book.remove(writer.book.worksheets[idx])
-                        
-    #                     # Write the DataFrame
-    #                     df.to_excel(
-    #                         writer,
-    #                         sheet_name=config["sheet_name"],
-    #                         index=False
-    #                     )
-                        
-    #                     # Get the worksheet
-    #                     worksheet = writer.book[config["sheet_name"]]
-                        
-    #                     # Merge the header cells
-    #                     worksheet.merge_cells(
-    #                         start_row=1,
-    #                         start_column=1,
-    #                         end_row=1,
-    #                         end_column=len(df.columns)
-    #                     )
-                        
-    #                     # Set alignment for merged cell
-    #                     merged_cell = worksheet.cell(row=1, column=1)
-    #                     merged_cell.alignment = openpyxl.styles.Alignment(
-    #                         horizontal='center',
-    #                         vertical='center'
-    #                     )
-
-    #                 logger.info(f"Successfully appended {config['filename']} to main report")
-
-    #                 # Cleanup using os.remove
-    #                 try:
-    #                     if os.path.exists(xlsx_path):
-    #                         os.remove(xlsx_path)
-    #                 except Exception as e:
-    #                     logger.warning(f"Could not remove temporary file: {e}")
-
-    #             except Exception as e:
-    #                 logger.error(f"Failed to append {config['filename']}: {str(e)}")
-    #                 self.save_screenshot(f"report_append_error_{report_type}")
-    #                 raise
-
-    #         return str(excel_path)
-
-    #     except Exception as e:
-    #         logger.error(f"Failed to append weekly reports: {str(e)}")
-    #         self.save_screenshot("weekly_reports_append_error")
-    #         raise
-
 
     def navigate_to_monthly_summary(self):
         """Navigate to the monthly summary page"""
@@ -1279,6 +1101,195 @@ class WebNavigator:
         except Exception as e:
             logger.error(f"Failed to process {report_category} reports: {str(e)}")
             self.save_screenshot(f"{report_category}_reports_error")
+            raise
+
+    def navigate_to_orders(self):
+        """Navigate to the order page"""
+        try:
+            # Wait for navigation menu
+            nav_div = self.wait.until(
+                EC.presence_of_element_located((By.CLASS_NAME, "nav"))
+            )
+            
+            # Find and click the monthly summary link
+            monthly_link = self.wait.until(
+                EC.element_to_be_clickable(
+                    (By.XPATH, "//a[contains(text(), '[606072] 交易單據資料下載')]")
+                )
+            )
+            monthly_link.click()
+            
+            logger.info("Successfully navigated to order page")
+            
+        except Exception as e:
+            logger.error(f"Failed to navigate to order menu: {str(e)}")
+            self.save_screenshot("order_navigation_error")
+            raise
+
+    def set_order_filter(self, order_type):
+        """Set filter for order reports
+        Args:
+            order_type: 'GR' for purchase order or 'RNS' for return order
+        """
+        try:
+            # Get date values for previous month
+            date_values = self.filter_month_generator()
+            year = date_values['year']
+            month = date_values['month'].zfill(2)
+            
+            # Calculate last day of month
+            last_day = calendar.monthrange(int(year), int(month))[1]
+            
+            # Format dates (DD-MM-YYYY)
+            start_date = f"01-{month}-{year}"
+            end_date = f"{last_day:02d}-{month}-{year}"
+            
+            # Select order type
+            order_select = Select(self.wait.until(
+                EC.presence_of_element_located((By.NAME, "mas_code"))
+            ))
+            order_select.select_by_value(order_type)
+            
+            # Set start date
+            start_date_field = self.wait.until(
+                EC.presence_of_element_located((By.NAME, "date1"))
+            )
+            # Clear any existing value and set new date using JavaScript
+            self.driver.execute_script(
+                f"arguments[0].value = '{start_date}';", 
+                start_date_field
+            )
+            
+            # Set end date
+            end_date_field = self.wait.until(
+                EC.presence_of_element_located((By.NAME, "date2"))
+            )
+            self.driver.execute_script(
+                f"arguments[0].value = '{end_date}';", 
+                end_date_field
+            )
+            
+            # Submit form
+            submit_button = self.wait.until(
+                EC.element_to_be_clickable((By.XPATH, "//input[@value='送出查詢']"))
+            )
+            submit_button.click()
+            
+            logger.info(f"Successfully set filter for {order_type} orders: {start_date} to {end_date}")
+            
+        except Exception as e:
+            logger.error(f"Failed to set order filter for {order_type}: {str(e)}")
+            self.save_screenshot(f"order_filter_error_{order_type}")
+            raise
+    
+    def extract_order_data(self, order_type):
+        """Extract data from order report
+        Args:
+            order_type: 'GR' for purchase order or 'RNS' for return order
+        """
+        try:
+            # Wait for table to be present
+            table = self.wait.until(
+                EC.presence_of_element_located(
+                    (By.XPATH, "//table[@border='0' and @width='100%']")
+                )
+            )
+            
+            # Get metadata from first row
+            metadata_cell = table.find_element(By.XPATH, ".//tr[1]/td").text.strip()
+            metadata_lines = metadata_cell.split('\n')
+            order_type_text = metadata_lines[0].strip()  # "單別：GR"
+            date_range_text = metadata_lines[1].strip()  # "日期：01-10-2024 至 31-10-2024"
+            
+            # Get column headers
+            header_cells = table.find_elements(By.XPATH, ".//tr[2]/td")
+            headers = [cell.text.strip() for cell in header_cells]
+            num_columns = len(headers)
+            
+            # Create all rows in the correct order
+            all_rows = [
+                # First row: Order type (padded with empty strings)
+                [order_type_text] + [''] * (num_columns - 1),
+                # Second row: Date range (padded with empty strings)
+                [date_range_text] + [''] * (num_columns - 1),
+                # Third row: Column headers
+                headers
+            ]
+            
+            # Add data rows
+            for row in table.find_elements(By.XPATH, ".//tr[position()>2]"):
+                cells = row.find_elements(By.TAG_NAME, "td")
+                if cells and len(cells) == num_columns:
+                    # Clean up the last cell (publisher) by removing hidden inputs
+                    publisher = cells[-1].text.strip()
+                    
+                    # Get all other cell values
+                    row_data = [cell.text.strip() for cell in cells[:-1]]
+                    row_data.append(publisher)
+                    
+                    if any(row_data):  # Only add non-empty rows
+                        all_rows.append(row_data)
+            
+            # Create DataFrame directly from all rows
+            df = pd.DataFrame(all_rows)
+            
+            logger.info(f"Successfully extracted {len(all_rows)-3} {order_type} order records")
+            return df
+            
+        except Exception as e:
+            logger.error(f"Failed to extract {order_type} order data: {str(e)}")
+            self.save_screenshot(f"order_extract_error_{order_type}")
+            raise
+
+    def process_order_reports(self, excel_path):
+        """Process both purchase and return order reports"""
+        try:
+            order_configs = {
+                'GR': {
+                    'sheet_name': 'Purchase Orders',
+                    'description': 'purchase'
+                },
+                'RNS': {
+                    'sheet_name': 'Return Orders',
+                    'description': 'return'
+                }
+            }
+            
+            for order_type, config in order_configs.items():
+                try:
+                    # Navigate to orders page
+                    self.navigate_to_orders()
+                    
+                    # Set filter and get data
+                    self.set_order_filter(order_type)
+                    df = self.extract_order_data(order_type)
+                    
+                    # Export to Excel
+                    with pd.ExcelWriter(str(excel_path), engine='openpyxl', mode='a') as writer:
+                        if config['sheet_name'] in writer.book.sheetnames:
+                            idx = writer.book.sheetnames.index(config['sheet_name'])
+                            writer.book.remove(writer.book.worksheets[idx])
+                        
+                        df.to_excel(
+                            writer,
+                            sheet_name=config['sheet_name'],
+                            index=False
+                        )
+                    
+                    logger.info(f"Successfully exported {config['description']} orders to sheet in {excel_path}")
+                    
+                    # Return to index for next report
+                    self.return_to_index()
+                    
+                except Exception as e:
+                    logger.error(f"Failed to process {config['description']} orders: {str(e)}")
+                    raise
+            
+            return excel_path
+            
+        except Exception as e:
+            logger.error(f"Failed to process order reports: {str(e)}")
+            self.save_screenshot("order_reports_error")
             raise
 
 # Custom exception for security-related errors
