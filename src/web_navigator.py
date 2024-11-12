@@ -39,6 +39,26 @@ class WebNavigator:
         self.exports_dir = str(self._exports_dir)
         self.downloads_dir = str(self._downloads_dir)
         
+        # Add report configurations
+        self.report_configs = {
+            "sum_by_week": {
+                "filename": "連鎖通路商品週銷售報表(依週期).xls",
+                "sheet_name": "Weekly Summary"
+            },
+            "sum_by_week_customer": {
+                "filename": "連鎖通路商品週銷售報表(依通路).xls",
+                "sheet_name": "Weekly Customer Summary"
+            },
+            "sum_by_month": {
+                "filename": "連鎖通路商品月銷售報表(依期間).xls",
+                "sheet_name": "Monthly Summary"
+            },
+            "sum_by_month_customer": {
+                "filename": "連鎖通路商品月銷售報表(依客戶).xls",
+                "sheet_name": "Monthly Customer Summary"
+            }
+        }
+        
         logger.info(f"Downloads directory set to: {self.downloads_dir}")
         
         try:
@@ -394,7 +414,7 @@ class WebNavigator:
                         '書名': '',
                         '發書日': pd.NaT,
                         '定價': None,
-                        '系列編號': '合計'  # Put '合計' in 系列編號 column
+                        '系列編號': '合計'  # Put '計' in 系列編號 column
                     }
                     
                     # Remove the first cell that contains '合計' and process the remaining cells sequentially
@@ -777,7 +797,7 @@ class WebNavigator:
             self.save_screenshot("analysis_table_extraction_error")
             raise
 
-    def navigate_to_sum_by_week(self):
+    def navigate_to_weekly_summary(self):
         """Navigate to the sum by week menu page"""
         try:
             # Wait for navigation menu
@@ -800,69 +820,68 @@ class WebNavigator:
             self.save_screenshot("sum_by_week_navigation_error")
             raise
 
-    def set_sum_by_week_filter(self, report_type='week', year=None, month=None):
-        """Set filter for sum by week report
-        Args:
-            report_type: 'week' for weekly report or 'customer' for customer report
-            year: Year to filter (defaults to current year)
-            month: Month to filter (defaults to previous month)
-        """
-        try:
-            # First navigate to the correct form
-            if report_type == 'week':
-                form_link = self.wait.until(
-                    EC.element_to_be_clickable(
-                        (By.XPATH, "//a[contains(text(), '連鎖通路商品週銷售報表(依週期)')]")
-                    )
-                )
-            else:
-                form_link = self.wait.until(
-                    EC.element_to_be_clickable(
-                        (By.XPATH, "//a[contains(text(), '連鎖通路商品週銷售報表(依客戶)')]")
-                    )
-                )
-            form_link.click()
+    # def set_sum_by_week_filter(self, report_type='week', year=None, month=None):
+    #     """Set filter for sum by week report
+    #     Args:
+    #         report_type: 'week' for weekly report or 'customer' for customer report
+    #         year: Year to filter (defaults to current year)
+    #         month: Month to filter (defaults to previous month)
+    #     """
+    #     try:
+    #         # First navigate to the correct form
+    #         if report_type == 'week':
+    #             form_link = self.wait.until(
+    #                 EC.element_to_be_clickable(
+    #                     (By.XPATH, "//a[contains(text(), '連鎖通路商品週銷售報表(依週期)')]")
+    #             )
+    #         else:
+    #             form_link = self.wait.until(
+    #                 EC.element_to_be_clickable(
+    #                     (By.XPATH, "//a[contains(text(), '連鎖通路商品週銷售報表(依客戶)')]")
+    #                 )
+    #             )
+    #         form_link.click()
 
-            # Use filter_month_generator to get the target month
-            date_values = self.filter_month_generator(year, month)
-            target_month = date_values['combined']
-            logger.debug(f"Filtering for {date_values['year']}/{date_values['month']}")
+    #         # Use filter_month_generator to get the target month
+    #         date_values = self.filter_month_generator(year, month)
+    #         target_month = date_values['combined']
+    #         logger.debug(f"Filtering for {date_values['year']}/{date_values['month']}")
 
-            # Get all options for start and end dates
-            start_select = Select(self.wait.until(
-                EC.presence_of_element_located((By.NAME, "mas_date_b"))
-            ))
-            end_select = Select(self.wait.until(
-                EC.presence_of_element_located((By.NAME, "mas_date_e"))
-            ))
+    #         # Get all options for start and end dates
+    #         start_select = Select(self.wait.until(
+    #             EC.presence_of_element_located((By.NAME, "mas_date_b"))
+    #         ))
+    #         end_select = Select(self.wait.until(
+    #             EC.presence_of_element_located((By.NAME, "mas_date_e"))
+    #         ))
 
-            # Get all options
-            start_options = [opt.get_attribute('value') for opt in start_select.options]
-            end_options = [opt.get_attribute('value') for opt in end_select.options]
+    #         # Get all options
+    #         start_options = [opt.get_attribute('value') for opt in start_select.options]
+    #         end_options = [opt.get_attribute('value') for opt in end_select.options]
 
-            # Filter options for the target month
-            month_start_options = [opt for opt in start_options if opt.startswith(target_month)]
-            month_end_options = [opt for opt in end_options if opt.startswith(target_month)]
+    #         # Filter options for the target month
+    #         month_start_options = [opt for opt in start_options if opt.startswith(target_month)]
+    #         month_end_options = [opt for opt in end_options if opt.startswith(target_month)]
 
-            if not month_start_options or not month_end_options:
-                raise ValueError(f"No options found for {date_values['year']}/{date_values['month']}")
+    #         if not month_start_options or not month_end_options:
+    #             raise ValueError(f"No options found for {date_values['year']}/{date_values['month']}")
 
-            # Select first and last options for the month
-            start_select.select_by_value(month_start_options[0])
-            end_select.select_by_value(month_end_options[-1])
+    #         # Select first and last options for the month
+    #         start_select.select_by_value(month_start_options[0])
+    #         end_select.select_by_value(month_end_options[-1])
 
-            # Submit form
-            submit_button = self.wait.until(
-                EC.element_to_be_clickable((By.NAME, "B1"))
-            )
-            submit_button.click()
+    #         # Submit form
+    #         submit_button = self.wait.until(
+    #             EC.element_to_be_clickable((By.NAME, "B1"))
+    #         )
+    #         submit_button.click()
 
-            logger.info(f"Successfully set filter for sum by {report_type} report: {date_values['year']}/{date_values['month']}")
+    #         logger.info(f"Successfully set filter for sum by {report_type} report: {date_values['year']}/{date_values['month']}")
 
-        except Exception as e:
-            logger.error(f"Failed to set sum by week filter: {str(e)}")
-            self.save_screenshot("sum_by_week_filter_error")
-            raise
+    #     except Exception as e:
+    #         logger.error(f"Failed to set sum by week filter: {str(e)}")
+    #         self.save_screenshot("sum_by_week_filter_error")
+    #         raise
 
     def process_downloaded_excel(self, download_path, report_type):
         """Convert downloaded Excel files to xlsx using LibreOffice"""
@@ -945,49 +964,263 @@ class WebNavigator:
             self.save_screenshot("excel_conversion_error")
             raise
 
-    def append_weekly_reports(self, excel_path):
-        """Append both weekly report files to the main report Excel file"""
-        try:
-            excel_path = Path(excel_path).resolve()
-            downloads_dir = self._get_downloads_path()
+    # def append_weekly_reports(self, excel_path):
+    #     """Append both weekly report files to the main report Excel file"""
+    #     try:
+    #         excel_path = Path(excel_path).resolve()
+    #         downloads_dir = self._get_downloads_path()
             
-            # Ensure downloads directory exists
-            downloads_dir.mkdir(exist_ok=True)
+    #         # Ensure downloads directory exists
+    #         downloads_dir.mkdir(exist_ok=True)
 
-            if not excel_path.suffix.lower() in ['.xlsx', '.xls']:
-                raise SecurityError("Invalid target file type")
+    #         if not excel_path.suffix.lower() in ['.xlsx', '.xls']:
+    #             raise SecurityError("Invalid target file type")
 
-            report_configs = {
-                "sum_by_week": {
-                    "filename": "連鎖通路商品週銷售報表(依週期).xls",
-                    "sheet_name": "Weekly Sales Summary"
+    #         report_configs = {
+    #             # configs for weekly reports
+    #             "sum_by_week": {
+    #                 "filename": "連鎖通路商品週銷售報表(依週期).xls",
+    #                 "sheet_name": "Weekly Sales Summary"
+    #             },
+    #             "sum_by_customer": {
+    #                 "filename": "連鎖通路商品週銷售報表(依通路).xls",
+    #                 "sheet_name": "Customer Sales Summary"
+    #             },
+    #             # configs for monthly reports
+    #             "sum_by_month": {
+    #                 "filename": "連鎖通路商品月銷售報表(依期間).xls",
+    #                 "sheet_name": "Monthly Summary"
+    #             },
+    #             "sum_by_month_customer": {
+    #                 "filename": "連鎖通路商品月銷售報表(依客戶).xls",
+    #                 "sheet_name": "Monthly Customer Summary"
+    #             }   
+    #         }
+
+    #         for report_type, config in report_configs.items():
+    #             try:
+    #                 # Wait for file download
+    #                 file_path = os.path.join(self.downloads_dir, config["filename"])
+    #                 wait_start = time.time()
+    #                 while not os.path.exists(file_path) and time.time() - wait_start < 30:
+    #                     time.sleep(0.5)
+
+    #                 if not os.path.exists(file_path):
+    #                     raise FileNotFoundError(f"Download timeout: {config['filename']}")
+                    
+    #                 # Print file info
+    #                 print(f"Found input file: {file_path}")
+    #                 print(f"File size: {os.path.getsize(file_path)} bytes")
+                    
+    #                 # Convert XLS to XLSX
+    #                 xlsx_path = self.process_downloaded_excel(file_path, report_type)
+                    
+    #                 # Read the converted file
+    #                 df = pd.read_excel(xlsx_path, engine='openpyxl')
+                    
+    #                 # Get the header value from the first cell
+    #                 header_value = df.columns[0]
+                    
+    #                 # Reset the column names to be blank after the first column
+    #                 new_columns = [header_value] + [''] * (len(df.columns) - 1)
+    #                 df.columns = new_columns
+
+    #                 # Append to main report with merged header
+    #                 with pd.ExcelWriter(str(excel_path), engine='openpyxl', mode='a') as writer:
+    #                     if config["sheet_name"] in writer.book.sheetnames:
+    #                         idx = writer.book.sheetnames.index(config["sheet_name"])
+    #                         writer.book.remove(writer.book.worksheets[idx])
+                        
+    #                     # Write the DataFrame
+    #                     df.to_excel(
+    #                         writer,
+    #                         sheet_name=config["sheet_name"],
+    #                         index=False
+    #                     )
+                        
+    #                     # Get the worksheet
+    #                     worksheet = writer.book[config["sheet_name"]]
+                        
+    #                     # Merge the header cells
+    #                     worksheet.merge_cells(
+    #                         start_row=1,
+    #                         start_column=1,
+    #                         end_row=1,
+    #                         end_column=len(df.columns)
+    #                     )
+                        
+    #                     # Set alignment for merged cell
+    #                     merged_cell = worksheet.cell(row=1, column=1)
+    #                     merged_cell.alignment = openpyxl.styles.Alignment(
+    #                         horizontal='center',
+    #                         vertical='center'
+    #                     )
+
+    #                 logger.info(f"Successfully appended {config['filename']} to main report")
+
+    #                 # Cleanup using os.remove
+    #                 try:
+    #                     if os.path.exists(xlsx_path):
+    #                         os.remove(xlsx_path)
+    #                 except Exception as e:
+    #                     logger.warning(f"Could not remove temporary file: {e}")
+
+    #             except Exception as e:
+    #                 logger.error(f"Failed to append {config['filename']}: {str(e)}")
+    #                 self.save_screenshot(f"report_append_error_{report_type}")
+    #                 raise
+
+    #         return str(excel_path)
+
+    #     except Exception as e:
+    #         logger.error(f"Failed to append weekly reports: {str(e)}")
+    #         self.save_screenshot("weekly_reports_append_error")
+    #         raise
+
+
+    def navigate_to_monthly_summary(self):
+        """Navigate to the monthly summary page"""
+        try:
+            # Wait for navigation menu
+            nav_div = self.wait.until(
+                EC.presence_of_element_located((By.CLASS_NAME, "nav"))
+            )
+            
+            # Find and click the monthly summary link
+            monthly_link = self.wait.until(
+                EC.element_to_be_clickable(
+                    (By.XPATH, "//a[contains(text(), '[606067] 連鎖通路商品月銷售報表')]")
+                )
+            )
+            monthly_link.click()
+            
+            logger.info("Successfully navigated to monthly summary page")
+            
+        except Exception as e:
+            logger.error(f"Failed to navigate to monthly summary menu: {str(e)}")
+            self.save_screenshot("monthly_summary_navigation_error")
+            raise
+
+    def set_report_filter(self, report_type):
+        """Generic filter setter for both weekly and monthly reports"""
+        try:
+            # Get month value using your existing generator
+            date_values = self.filter_month_generator()
+            target_month = date_values['combined']
+            logger.debug(f"Filtering for {date_values['year']}/{date_values['month']}")
+
+            # Select the appropriate form based on report type
+            form_links = {
+                "sum_by_week": "//a[contains(text(), '連鎖通路商品週銷售報表(依週期)')]",
+                "sum_by_week_customer": "//a[contains(text(), '連鎖通路商品週銷售報表(依客戶)')]",
+                "sum_by_month": "//a[contains(text(), '連鎖通路商品月銷售報表(依期間)')]",
+                "sum_by_month_customer": "//a[contains(text(), '連鎖通路商品月銷售報表(依客戶)')]"
+            }
+
+            form_link = self.wait.until(
+                EC.element_to_be_clickable(
+                    (By.XPATH, form_links[report_type])
+                )
+            )
+            form_link.click()
+
+            # Handle different filter fields based on report type
+            if report_type.startswith('sum_by_week'):
+                # Weekly report filter fields
+                start_select = Select(self.wait.until(
+                    EC.presence_of_element_located((By.NAME, "mas_date_b"))
+                ))
+                end_select = Select(self.wait.until(
+                    EC.presence_of_element_located((By.NAME, "mas_date_e"))
+                ))
+
+                # Get all options
+                start_options = [opt.get_attribute('value') for opt in start_select.options]
+                end_options = [opt.get_attribute('value') for opt in end_select.options]
+
+                # Filter options for the target month
+                month_start_options = [opt for opt in start_options if opt.startswith(target_month)]
+                month_end_options = [opt for opt in end_options if opt.startswith(target_month)]
+
+                if not month_start_options or not month_end_options:
+                    raise ValueError(f"No options found for {date_values['year']}/{date_values['month']}")
+
+                # Select first and last options for the month
+                start_select.select_by_value(month_start_options[0])
+                end_select.select_by_value(month_end_options[-1])
+
+            else:
+                # Monthly report filter fields
+                start_field = self.wait.until(
+                    EC.presence_of_element_located((By.NAME, "ym_b"))
+                )
+                end_field = self.wait.until(
+                    EC.presence_of_element_located((By.NAME, "ym_e"))
+                )
+                Select(start_field).select_by_value(target_month)
+                Select(end_field).select_by_value(target_month)
+
+            # Submit the form
+            submit_button = self.wait.until(
+                EC.element_to_be_clickable((By.NAME, "B1"))  # Changed to match your original
+            )
+            submit_button.click()
+
+            logger.info(f"Successfully set filter for {report_type} report: {date_values['year']}/{date_values['month']}")
+
+        except Exception as e:
+            logger.error(f"Failed to set filter for {report_type}: {str(e)}")
+            self.save_screenshot(f"{report_type}_filter_error")
+            raise
+
+    def process_summary_reports(self, excel_path, report_category):
+        """Process both weekly and monthly summary reports"""
+        try:
+            # Define report pairs
+            report_pairs = {
+                'weekly': {
+                    'menu_func': self.navigate_to_weekly_summary,
+                    'reports': ['sum_by_week', 'sum_by_week_customer']
                 },
-                "sum_by_customer": {
-                    "filename": "連鎖通路商品週銷售報表(依通路).xls",
-                    "sheet_name": "Customer Sales Summary"
+                'monthly': {
+                    'menu_func': self.navigate_to_monthly_summary,
+                    'reports': ['sum_by_month', 'sum_by_month_customer']
                 }
             }
 
-            for report_type, config in report_configs.items():
+            pair = report_pairs[report_category]
+            converted_files = []  # Track converted files
+            
+            for report_type in pair['reports']:
+                # Navigate to appropriate menu
+                pair['menu_func']()
+                self.set_report_filter(report_type)
+                
+                # Wait for download
+                file_path = os.path.join(self.downloads_dir, self.report_configs[report_type]["filename"])
+                wait_start = time.time()
+                while not os.path.exists(file_path) and time.time() - wait_start < 30:
+                    time.sleep(0.5)
+                    
+                if not os.path.exists(file_path):
+                    raise FileNotFoundError(f"Download timeout: {self.report_configs[report_type]['filename']}")
+                
+                # Convert file and store path
+                xlsx_path = self.process_downloaded_excel(file_path, report_type)
+                converted_files.append({
+                    'path': xlsx_path,
+                    'type': report_type,
+                    'config': self.report_configs[report_type]
+                })
+                
+                # Return to index for next report
+                self.return_to_index()
+                
+            # Now process all converted files
+            for file_info in converted_files:
                 try:
-                    # Wait for file download
-                    file_path = os.path.join(self.downloads_dir, config["filename"])
-                    wait_start = time.time()
-                    while not os.path.exists(file_path) and time.time() - wait_start < 30:
-                        time.sleep(0.5)
-
-                    if not os.path.exists(file_path):
-                        raise FileNotFoundError(f"Download timeout: {config['filename']}")
-                    
-                    # Print file info
-                    print(f"Found input file: {file_path}")
-                    print(f"File size: {os.path.getsize(file_path)} bytes")
-                    
-                    # Convert XLS to XLSX
-                    xlsx_path = self.process_downloaded_excel(file_path, report_type)
-                    
                     # Read the converted file
-                    df = pd.read_excel(xlsx_path, engine='openpyxl')
+                    df = pd.read_excel(file_info['path'], engine='openpyxl')
                     
                     # Get the header value from the first cell
                     header_value = df.columns[0]
@@ -998,19 +1231,19 @@ class WebNavigator:
 
                     # Append to main report with merged header
                     with pd.ExcelWriter(str(excel_path), engine='openpyxl', mode='a') as writer:
-                        if config["sheet_name"] in writer.book.sheetnames:
-                            idx = writer.book.sheetnames.index(config["sheet_name"])
+                        if file_info['config']["sheet_name"] in writer.book.sheetnames:
+                            idx = writer.book.sheetnames.index(file_info['config']["sheet_name"])
                             writer.book.remove(writer.book.worksheets[idx])
                         
                         # Write the DataFrame
                         df.to_excel(
                             writer,
-                            sheet_name=config["sheet_name"],
+                            sheet_name=file_info['config']["sheet_name"],
                             index=False
                         )
                         
                         # Get the worksheet
-                        worksheet = writer.book[config["sheet_name"]]
+                        worksheet = writer.book[file_info['config']["sheet_name"]]
                         
                         # Merge the header cells
                         worksheet.merge_cells(
@@ -1027,25 +1260,25 @@ class WebNavigator:
                             vertical='center'
                         )
 
-                    logger.info(f"Successfully appended {config['filename']} to main report")
+                    logger.info(f"Successfully appended {file_info['config']['filename']} to main report")
 
-                    # Cleanup using os.remove
+                except Exception as e:
+                    logger.error(f"Failed to append {file_info['config']['filename']}: {str(e)}")
+                    raise
+                finally:
+                    # Cleanup converted file
                     try:
-                        if os.path.exists(xlsx_path):
-                            os.remove(xlsx_path)
+                        if os.path.exists(file_info['path']):
+                            os.remove(file_info['path'])
                     except Exception as e:
                         logger.warning(f"Could not remove temporary file: {e}")
 
-                except Exception as e:
-                    logger.error(f"Failed to append {config['filename']}: {str(e)}")
-                    self.save_screenshot(f"report_append_error_{report_type}")
-                    raise
-
-            return str(excel_path)
+            logger.info(f"Successfully processed {report_category} reports")
+            return excel_path
 
         except Exception as e:
-            logger.error(f"Failed to append weekly reports: {str(e)}")
-            self.save_screenshot("weekly_reports_append_error")
+            logger.error(f"Failed to process {report_category} reports: {str(e)}")
+            self.save_screenshot(f"{report_category}_reports_error")
             raise
 
 # Custom exception for security-related errors
