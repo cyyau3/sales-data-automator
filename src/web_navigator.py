@@ -1233,6 +1233,10 @@ class WebNavigator:
             # Create DataFrame directly from all rows
             df = pd.DataFrame(all_rows)
             
+            # Drop the first row if it contains numeric indices (0-10)
+            if df.iloc[0].astype(str).str.match(r'^\d+$').all():
+                df = df.iloc[1:]
+            
             logger.info(f"Successfully extracted {len(all_rows)-3} {order_type} order records")
             return df
             
