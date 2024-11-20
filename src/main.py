@@ -112,6 +112,13 @@ def perform_ucd_automation(config):
         navigator.return_to_index()
         navigator.process_order_reports(str(excel_path))
 
+        # Payment menu
+        navigator.return_to_index()
+        navigator.navigate_to_payment_menu()
+        navigator.navigate_to_discount_detail()
+        navigator.set_discount_filter()
+        navigator.process_discount_report(str(excel_path))
+
         logger.info(f"All reports exported to {excel_path}")
         return navigator
 

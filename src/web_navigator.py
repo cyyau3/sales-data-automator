@@ -1295,6 +1295,249 @@ class WebNavigator:
             logger.error(f"Failed to process order reports: {str(e)}")
             self.save_screenshot("order_reports_error")
             raise
+    
+    def navigate_to_payment_menu(self):
+        """Navigate to the payment menu"""
+        try:
+            # Wait for navigation menu
+            nav_div = self.wait.until(
+                EC.presence_of_element_located((By.CLASS_NAME, "nav"))
+            )
+            
+            # Find and click the payment menu link
+            payment_link = self.wait.until(
+                EC.element_to_be_clickable(
+                    (By.XPATH, "//a[contains(text(), '[606076] 供應商對帳作業')]")
+                )
+            )
+            payment_link.click()  # Fixed typo in variable name
+            
+            # Add wait for page load like other navigation functions
+            self.wait.until(
+                EC.presence_of_element_located((By.TAG_NAME, "form"))
+            )
+            
+            logger.info("Successfully navigated to payment menu")
+            
+        except TimeoutException:  # Add specific timeout handling like other functions
+            logger.error("Timeout waiting for payment menu elements")
+            self.save_screenshot("payment_menu_navigation_error")
+            raise
+        except Exception as e:
+            logger.error(f"Failed to navigate to payment menu: {str(e)}")
+            self.save_screenshot("payment_menu_navigation_error")
+            raise
+
+    def navigate_to_discount_detail(self):
+        """Navigate to the discount detail page"""
+        try:
+            # Find and click the discount detail link
+            discount_link = self.wait.until(
+                EC.element_to_be_clickable(
+                    (By.XPATH, "//a[contains(text(), '[折讓明細(輸出檔)]')]")
+                )
+            )
+            discount_link.click()
+            
+            # Wait for the filter form to be present
+            self.wait.until(
+                EC.presence_of_element_located((By.XPATH, "//input[@name='period']"))
+            )
+            
+            logger.info("Successfully navigated to discount details page")
+            
+        except TimeoutException:
+            logger.error("Timeout waiting for discount detail page elements")
+            self.save_screenshot("discount_detail_navigation_error")
+            raise
+        except Exception as e:
+            logger.error(f"Failed to navigate to discount detail: {str(e)}")
+            self.save_screenshot("discount_detail_navigation_error")
+            raise
+
+    def set_discount_filter(self):
+        """Set filter for discount detail report"""
+        try:
+            # Get date 2 months ago using filter_month_generator
+            current_date = datetime.now()
+            if current_date.month <= 2:
+                year = current_date.year - 1
+                month = current_date.month + 10  # If month is 1 or 2, go back to previous year
+            else:
+                year = current_date.year
+                month = current_date.month - 2
+                
+            # Format as YYYYMM
+            period = f"{year}{month:02d}"
+            
+            # Find and fill the period input
+            period_input = self.wait.until(
+                EC.presence_of_element_located((By.NAME, "period"))
+            )
+            period_input.clear()
+            period_input.send_keys(period)
+            
+            # Click submit button
+            submit_button = self.wait.until(
+                EC.element_to_be_clickable((By.XPATH, "//input[@value='查詢'][@name='B1']"))
+            )
+            submit_button.click()
+            
+            logger.info(f"Successfully set discount filter for period: {period}")
+            
+        except TimeoutException:
+            logger.error("Timeout waiting for discount filter elements")
+            self.save_screenshot("discount_filter_error")
+            raise
+        except Exception as e:
+            logger.error(f"Failed to set discount filter: {str(e)}")
+            self.save_screenshot("discount_filter_error")
+            raise
+
+    def extract_discount_table(self):
+        """Extract data from the discount detail table"""
+        try:
+            logger.debug("Starting extract_discount_table function")
+            time.sleep(3)  # Wait for new tab to open
+            
+            # Get all window handles and switch to the new tab
+            handles = self.driver.window_handles
+            logger.debug(f"Found {len(handles)} browser windows")
+            
+            if len(handles) < 2:
+                raise Exception("Expected new tab to open after filter submission, but no new tab found")
+            
+            # Switch to the new tab (last opened)
+            self.driver.switch_to.window(handles[-1])
+            logger.debug(f"Switched to new tab with URL: {self.driver.current_url}")
+            
+            # Find all tables in the new tab
+            tables = self.driver.find_elements(By.TAG_NAME, "table")
+            logger.debug(f"Found {len(tables)} tables on page")
+            
+            if len(tables) >= 2:
+                table = tables[1]  # Use second table
+            else:
+                raise Exception(f"Not enough tables found in results tab. Found: {len(tables)}")
+                
+            # Get headers
+            headers = []
+            header_cells = table.find_elements(By.XPATH, ".//tr[1]/td")
+            for cell in header_cells:
+                header_text = cell.text.strip()
+                headers.append(header_text)
+            logger.debug(f"Found headers: {headers}")
+            
+            # Get all rows
+            all_rows = table.find_elements(By.TAG_NAME, "tr")
+            logger.debug(f"Total rows found: {len(all_rows)}")
+            
+            # Process data rows (skip header)
+            data = []
+            for i, row in enumerate(all_rows[1:], 1):  # Skip header row
+                cells = row.find_elements(By.TAG_NAME, "td")
+                logger.debug(f"Row {i} has {len(cells)} cells")
+                
+                # Check if this is the total row
+                if len(cells) == 2:  # Total row has 2 cells
+                    total_text = cells[0].text.strip()
+                    total_amount = cells[1].text.strip()
+                    logger.debug(f"Found total row: {total_text}, {total_amount}")
+                    continue
+                
+                # Regular data row
+                row_data = []
+                for j, cell in enumerate(cells):
+                    value = cell.text.strip()
+                    if j == 0:  # Date column
+                        # Extract just the date part if it contains time
+                        if "00:00:00" in value:
+                            value = value.split()[0]  # Take only the date part
+                    row_data.append(value)
+                    
+                if len(row_data) == len(headers):
+                    data.append(row_data)
+                    logger.debug(f"Added data row: {row_data}")
+                else:
+                    logger.warning(f"Skipping row with incorrect number of cells. Expected {len(headers)}, got {len(row_data)}")
+            
+            # Create DataFrame
+            df = pd.DataFrame(data, columns=headers)
+            logger.debug(f"Created DataFrame with shape: {df.shape}")
+            
+            # Convert date column - now using the exact format from the table
+            df['日期'] = pd.to_datetime(df['日期'], format='%Y/%m/%d').dt.date
+            logger.debug(f"Date column after conversion:\n{df['日期']}")
+            
+            # Convert amount column
+            df['折讓金額'] = df['折讓金額'].str.replace(',', '').astype(float)
+            
+            # Add total row
+            total_data = {
+                '日期': None,
+                '折讓類別': None,
+                '說明': total_text if 'total_text' in locals() else "合計",
+                '折讓金額': float(total_amount.replace(',', '')) if 'total_amount' in locals() else 0.0
+            }
+            df = pd.concat([df, pd.DataFrame([total_data])], ignore_index=True)
+            
+            logger.info(f"Successfully extracted {len(df)-1} discount records plus total")
+            logger.debug(f"Final DataFrame:\n{df}")
+            return df
+            
+        except Exception as e:
+            logger.error(f"Failed to extract discount details: {str(e)}\nTraceback: {traceback.format_exc()}")
+            self.save_screenshot("discount_extract_error")
+            raise
+        finally:
+            # Clean up: close the new tab and switch back to original
+            if len(self.driver.window_handles) > 1:
+                self.driver.close()
+                self.driver.switch_to.window(handles[0])
+                logger.debug("Switched back to original tab")
+
+    def process_discount_report(self, excel_path):
+        """Process discount report and export to Excel"""
+        try:
+            df = self.extract_discount_table()
+            
+            # Export to Excel
+            with pd.ExcelWriter(str(excel_path), engine='openpyxl', mode='a') as writer:
+                sheet_name = 'Discount Details'
+                
+                # Remove sheet if it exists
+                if sheet_name in writer.book.sheetnames:
+                    idx = writer.book.sheetnames.index(sheet_name)
+                    writer.book.remove(writer.book.worksheets[idx])
+                
+                df.to_excel(
+                    writer,
+                    sheet_name=sheet_name,
+                    index=False
+                )
+                
+                # Format the worksheet
+                worksheet = writer.book[sheet_name]
+                for column in worksheet.columns:
+                    max_length = 0
+                    column = [cell for cell in column]
+                    for cell in column:
+                        try:
+                            if len(str(cell.value)) > max_length:
+                                max_length = len(str(cell.value))
+                        except:
+                            pass
+                    adjusted_width = (max_length + 2)
+                    worksheet.column_dimensions[column[0].column_letter].width = adjusted_width
+            
+            logger.info(f"Successfully exported discount details to sheet in {excel_path}")
+            
+            return excel_path
+        
+        except Exception as e:
+            logger.error(f"Failed to process discount report: {str(e)}")
+            self.save_screenshot("discount_report_error")
+            raise
 
 # Custom exception for security-related errors
 class SecurityError(Exception):
