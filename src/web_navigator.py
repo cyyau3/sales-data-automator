@@ -12,6 +12,7 @@ import os
 import time
 import openpyxl
 from openpyxl.styles import Alignment
+from openpyxl.styles import Font
 import traceback
 from urls import URLConfig
 from selenium.webdriver.chrome.options import Options
@@ -1483,6 +1484,79 @@ class WebNavigator:
             
             logger.info(f"Successfully extracted {len(df)-1} discount records plus total")
             logger.debug(f"Final DataFrame:\n{df}")
+            
+            # Before closing the tab, collect all URLs and their categories
+            discount_links = []
+            for row in all_rows[1:-1]:  # Skip header and total rows
+                cells = row.find_elements(By.TAG_NAME, "td")
+                if len(cells) == 4:  # Regular data row
+                    cell = cells[2]  # The third column contains links
+                    links = cell.find_elements(By.TAG_NAME, "a")
+                    if links:
+                        link = links[0]
+                        category = link.text.strip()
+                        url = link.get_attribute('href')
+                        discount_links.append({
+                            'category': category,
+                            'url': url
+                        })
+            
+            logger.debug(f"Found {len(discount_links)} discount detail links")
+            
+            # Process each link
+            for link_data in discount_links:
+                try:
+                    # Store current window handle
+                    current_window = self.driver.current_window_handle
+                    
+                    # Click the link (opens in new tab)
+                    self.driver.execute_script(f"window.open('{link_data['url']}', '_blank');")
+                    logger.debug(f"Triggered download for {link_data['category']}")
+                    
+                    # Don't switch to new tab, just wait for download
+                    time.sleep(3)  # Wait for download to start
+                    download_path = None
+                    for _ in range(30):  # Wait up to 30 seconds
+                        files = list(self._get_downloads_path().glob("*.xls"))
+                        if files:
+                            download_path = str(max(files, key=os.path.getctime))
+                            break
+                        time.sleep(1)
+                    
+                    if download_path:
+                        logger.debug(f"Found downloaded file: {download_path}")
+                        
+                        # Read the Excel file with explicit engine specification
+                        detail_df = pd.read_excel(download_path, engine='xlrd')
+                        
+                        # Append to main Excel file
+                        with pd.ExcelWriter(self.excel_path, engine='openpyxl', mode='a') as writer:
+                            if link_data['category'] in writer.book.sheetnames:
+                                idx = writer.book.sheetnames.index(link_data['category'])
+                                writer.book.remove(writer.book.worksheets[idx])
+                            
+                            detail_df.to_excel(
+                                writer,
+                                sheet_name=link_data['category'],
+                                index=False
+                            )
+                            logger.info(f"Added detail sheet: {link_data['category']}")
+                        
+                        # Clean up downloaded file
+                        try:
+                            os.remove(download_path)
+                            logger.debug(f"Cleaned up downloaded file: {download_path}")
+                        except Exception as e:
+                            logger.warning(f"Could not remove downloaded file: {e}")
+                    
+                    # Make sure we're on the correct window
+                    if self.driver.current_window_handle != current_window:
+                        self.driver.switch_to.window(current_window)
+                    
+                except Exception as e:
+                    logger.error(f"Failed to process discount detail link {link_data['category']}: {str(e)}")
+                    continue
+            
             return df
             
         except Exception as e:
@@ -1490,7 +1564,7 @@ class WebNavigator:
             self.save_screenshot("discount_extract_error")
             raise
         finally:
-            # Clean up: close the new tab and switch back to original
+            # Clean up: close the results tab and switch back to original
             if len(self.driver.window_handles) > 1:
                 self.driver.close()
                 self.driver.switch_to.window(handles[0])
@@ -1499,9 +1573,10 @@ class WebNavigator:
     def process_discount_report(self, excel_path):
         """Process discount report and export to Excel"""
         try:
+            # Get main discount table
             df = self.extract_discount_table()
             
-            # Export to Excel
+            # Export main discount table to Excel
             with pd.ExcelWriter(str(excel_path), engine='openpyxl', mode='a') as writer:
                 sheet_name = 'Discount Details'
                 
@@ -1530,8 +1605,77 @@ class WebNavigator:
                     adjusted_width = (max_length + 2)
                     worksheet.column_dimensions[column[0].column_letter].width = adjusted_width
             
-            logger.info(f"Successfully exported discount details to sheet in {excel_path}")
-            
+            # Process downloaded detail files
+            downloads_path = self._get_downloads_path()
+            for file in downloads_path.glob("*.xls"):
+                try:
+                    # Convert using LibreOffice
+                    converted_path = self.process_downloaded_excel(file, "discount_detail")
+                    if converted_path:
+                        # Read the Excel file with header=None to handle merged cells
+                        df = pd.read_excel(converted_path, header=None)
+                        
+                        # Check if first row contains merged cells
+                        first_row = df.iloc[0]
+                        has_merged_header = first_row.isna().any()
+                        
+                        if has_merged_header:
+                            # Get the first non-null value from the merged header
+                            header_title = first_row.dropna().iloc[0]
+                            logger.debug(f"Found merged header: {header_title}")
+                            
+                            # Skip the merged header row and use second row as column names
+                            df = pd.read_excel(converted_path, header=1)
+                        else:
+                            # No merged cells, read normally
+                            df = pd.read_excel(converted_path)
+                        
+                        # Get category name from filename
+                        category = os.path.splitext(file.name)[0].replace("discount_", "")
+                        sheet_name = f"Discount_{category}"
+                        
+                        # Append to main Excel
+                        with pd.ExcelWriter(str(excel_path), engine='openpyxl', mode='a') as writer:
+                            if sheet_name in writer.book.sheetnames:
+                                idx = writer.book.sheetnames.index(sheet_name)
+                                writer.book.remove(writer.book.worksheets[idx])
+                            
+                            df.to_excel(
+                                writer,
+                                sheet_name=sheet_name,
+                                index=False
+                            )
+                            
+                            # If there was a merged header, add it back with bold formatting
+                            if has_merged_header:
+                                worksheet = writer.book[sheet_name]
+                                # Merge cells in first row
+                                worksheet.insert_rows(0)
+                                first_cell = worksheet.cell(row=1, column=1)
+                                first_cell.value = header_title
+                                
+                                # Apply bold formatting to merged header
+                                first_cell.font = Font(bold=True)
+                                
+                                # Merge cells and center align
+                                worksheet.merge_cells(start_row=1, start_column=1, 
+                                                   end_row=1, end_column=len(df.columns))
+                                first_cell.alignment = Alignment(horizontal='center')
+                        
+                            logger.info(f"Added discount detail sheet: {sheet_name}")
+                        
+                            # Cleanup converted file
+                            os.remove(converted_path)
+                    
+                except Exception as e:
+                    logger.error(f"Failed to process detail file {file}: {str(e)}")
+                    continue
+                finally:
+                    # Cleanup original file
+                    if file.exists():
+                        file.unlink()
+                    
+            logger.info(f"Successfully exported discount details to {excel_path}")
             return excel_path
         
         except Exception as e:

@@ -112,12 +112,16 @@ def perform_ucd_automation(config):
         navigator.return_to_index()
         navigator.process_order_reports(str(excel_path))
 
-        # Payment menu
+        # Payment menu and discount reports
         navigator.return_to_index()
+        logger.info("Processing discount reports...")
         navigator.navigate_to_payment_menu()
         navigator.navigate_to_discount_detail()
         navigator.set_discount_filter()
+        
+        # Process main discount table and detail reports
         navigator.process_discount_report(str(excel_path))
+        logger.info("Completed processing discount reports")
 
         logger.info(f"All reports exported to {excel_path}")
         return navigator
