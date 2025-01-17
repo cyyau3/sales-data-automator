@@ -1240,10 +1240,6 @@ class WebNavigator:
             # Create DataFrame directly from all rows
             df = pd.DataFrame(all_rows)
             
-            # Drop the first row if it contains numeric indices (0-10)
-            if df.iloc[0].astype(str).str.match(r'^\d+$').all():
-                df = df.iloc[1:]
-            
             logger.info(f"Successfully extracted {len(all_rows)-3} {order_type} order records")
             return df
             
@@ -1275,16 +1271,44 @@ class WebNavigator:
                     self.set_order_filter(order_type)
                     df = self.extract_order_data(order_type)
                     
+                    # First remove the numeric row if it exists
+                    if df.iloc[0].astype(str).str.match(r'^\d+$').all():
+                        df = df.iloc[1:].reset_index(drop=True)
+                    
+                    # Then add the title row
+                    title_df = pd.DataFrame([[config['sheet_name']] + [''] * (len(df.columns) - 1)], columns=df.columns)
+                    df = pd.concat([title_df, df], ignore_index=True)
+                    
                     # Export to Excel
                     with pd.ExcelWriter(str(excel_path), engine='openpyxl', mode='a') as writer:
                         if config['sheet_name'] in writer.book.sheetnames:
                             idx = writer.book.sheetnames.index(config['sheet_name'])
                             writer.book.remove(writer.book.worksheets[idx])
                         
+                        # Write the DataFrame
                         df.to_excel(
                             writer,
                             sheet_name=config['sheet_name'],
-                            index=False
+                            index=False,
+                            header=False  # Don't write the numeric headers
+                        )
+                        
+                        # Get the worksheet
+                        worksheet = writer.book[config['sheet_name']]
+                        
+                        # Merge the title cells in the first row
+                        worksheet.merge_cells(
+                            start_row=1,
+                            start_column=1,
+                            end_row=1,
+                            end_column=len(df.columns)
+                        )
+                        
+                        # Style the merged cell
+                        merged_cell = worksheet.cell(row=1, column=1)
+                        merged_cell.alignment = openpyxl.styles.Alignment(
+                            horizontal='center',
+                            vertical='center'
                         )
                     
                     logger.info(f"Successfully exported {config['description']} orders to sheet in {excel_path}")
