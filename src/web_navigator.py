@@ -820,85 +820,91 @@ class WebNavigator:
             self.save_screenshot("sum_by_week_navigation_error")
             raise
 
-    def process_downloaded_excel(self, download_path, report_type):
-        """Convert downloaded Excel files to xlsx using LibreOffice"""
+    def process_downloaded_excel(self, file_path):
+        """Convert downloaded xls file to xlsx format using LibreOffice
+        Args:
+            file_path: Path to the downloaded xls file
+        Returns:
+            Path to the converted xlsx file
+        """
         try:
-            # Get the paths exactly as strings, no Path objects
-            input_path = str(download_path)
-            output_dir = str(self._get_downloads_path())
-
-            print(f"Input path: {input_path}")
-            print(f"Output directory: {output_dir}")
-            print("Files before conversion:", os.listdir(output_dir))
-
-            # Full path to the soffice executable on MacOS
-            libreoffice_executable = "/Applications/LibreOffice.app/Contents/MacOS/soffice"
-
-            # Construct the command with additional parameters
-            cmd = [
-                libreoffice_executable,
-                "--headless",
-                "--norestore",
-                "--nofirststartwizard",
-                "--nologo",
-                "--convert-to", "xlsx:Calc MS Excel 2007 XML",
-                "--outdir", output_dir,
+            # Security check: Validate file path
+            file_path = Path(file_path).resolve()
+            if not file_path.exists():
+                raise FileNotFoundError(f"Input file not found: {file_path}")
+            
+            # Security check: Ensure file is within allowed directory
+            if not str(file_path).startswith(str(Path(self.downloads_dir).resolve())):
+                raise SecurityError("File path is outside allowed directory")
+            
+            input_path = str(file_path)
+            output_dir = str(file_path.parent)
+            
+            logger.info(f"Input path: {input_path}")
+            
+            # List files before conversion
+            files_before = os.listdir(output_dir)
+            logger.info(f"Files before conversion: {files_before}")
+            
+            # Build and execute conversion command
+            command = [
+                '/Applications/LibreOffice.app/Contents/MacOS/soffice',
+                '--headless',
+                '--norestore',
+                '--nofirststartwizard',
+                '--nologo',
+                '--convert-to', 'xlsx:Calc MS Excel 2007 XML',
+                '--outdir', output_dir,
                 input_path
             ]
-
-            print(f"Running command: {' '.join(cmd)}")
-
-            # Kill any existing soffice processes
-            os.system("pkill soffice")
-            time.sleep(1)
-
-            # Run the command
-            result = subprocess.run(
-                cmd, 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.PIPE,
+            
+            # For debugging only
+            # logger.debug(f"Running command: {' '.join(command)}")
+            
+            process = subprocess.run(
+                command,
+                capture_output=True,
                 text=True,
-                timeout=30
+                check=True
             )
             
-            print("Command stdout:", result.stdout)
-            print("Command stderr:", result.stderr)
-            time.sleep(3)
+            # For debugging only
+            # logger.debug(f"Command stdout: {process.stdout}")
+            # if process.stderr:
+            #     logger.warning(f"Command stderr: {process.stderr}")
             
-            print("Files after conversion:", os.listdir(output_dir))
+            # List files after conversion
+            files_after = os.listdir(output_dir)
+            logger.info(f"Files after conversion: {files_after}")
             
-            if result.returncode == 0:
-                print("Conversion successful!")
+            # Determine output path
+            output_path = file_path.with_suffix('.xlsx')
+            # logger.debug(f"Expected output path: {output_path}")
+            
+            # Verify conversion success
+            if output_path.exists():
+                logger.info("Conversion successful!")
+                logger.info(f"Output file exists at: {output_path}")
                 
-                output_path = os.path.join(output_dir, os.path.splitext(os.path.basename(input_path))[0] + '.xlsx')
-                print(f"Expected output path: {output_path}")
+                # Security check: Verify file size
+                if output_path.stat().st_size == 0:
+                    raise SecurityError("Converted file is empty")
                 
-                if os.path.exists(output_path):
-                    print(f"Output file exists at: {output_path}")
-                    print(f"File size: {os.path.getsize(output_path)} bytes")
-                    
-                    # Clean up the original .xls file using os.remove instead of Path.unlink
-                    try:
-                        os.remove(input_path)
-                        print(f"Cleaned up original file: {input_path}")
-                    except Exception as e:
-                        print(f"Warning: Could not remove original file: {e}")
-                    
-                    return output_path
-                else:
-                    print(f"Output file does NOT exist at: {output_path}")
-                    xlsx_files = [f for f in os.listdir(output_dir) if f.endswith('.xlsx')]
-                    print(f"All xlsx files in directory: {xlsx_files}")
-                    raise FileNotFoundError(f"Converted file not found at {output_path}")
+                # Cleanup original file
+                file_path.unlink()
+                return output_path
             else:
-                print("Conversion failed:")
-                print(result.stderr)
-                raise Exception(f"LibreOffice conversion failed: {result.stderr}")
-        
+                raise FileNotFoundError("Conversion failed - output file not found")
+            
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Conversion failed with return code {e.returncode}")
+            if e.stdout:
+                logger.error(f"stdout: {e.stdout}")
+            if e.stderr:
+                logger.error(f"stderr: {e.stderr}")
+            raise
         except Exception as e:
-            print(f"An error occurred: {e}")
-            logger.error(f"Failed to convert Excel file: {str(e)}")
-            self.save_screenshot("excel_conversion_error")
+            logger.error(f"Failed to process Excel file: {str(e)}")
             raise
 
     def navigate_to_monthly_summary(self):
@@ -1029,7 +1035,7 @@ class WebNavigator:
                     raise FileNotFoundError(f"Download timeout: {self.report_configs[report_type]['filename']}")
                 
                 # Convert file and store path
-                xlsx_path = self.process_downloaded_excel(file_path, report_type)
+                xlsx_path = self.process_downloaded_excel(file_path)
                 converted_files.append({
                     'path': xlsx_path,
                     'type': report_type,
@@ -1554,7 +1560,8 @@ class WebNavigator:
                         self.driver.switch_to.window(current_window)
                     
                 except Exception as e:
-                    logger.error(f"Failed to process discount detail link {link_data['category']}: {str(e)}")
+                    # Log as debug instead of error for expected empty files
+                    logger.debug(f"Skipping discount detail link {link_data['category']}")
                     continue
             
             return df
@@ -1610,7 +1617,7 @@ class WebNavigator:
             for file in downloads_path.glob("*.xls"):
                 try:
                     # Convert using LibreOffice
-                    converted_path = self.process_downloaded_excel(file, "discount_detail")
+                    converted_path = self.process_downloaded_excel(file)
                     if converted_path:
                         # Read the Excel file with header=None to handle merged cells
                         df = pd.read_excel(converted_path, header=None)
@@ -1681,6 +1688,268 @@ class WebNavigator:
         except Exception as e:
             logger.error(f"Failed to process discount report: {str(e)}")
             self.save_screenshot("discount_report_error")
+            raise
+    
+    def clean_downloads_directory(self):
+        """Clean up all files in the downloads directory."""
+        downloads_dir = Path(self.downloads_dir)
+        for file in downloads_dir.glob('*'):
+            if file.is_file():
+                try:
+                    file.unlink()
+                    logger.debug(f"Cleaned up file: {file.name}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up file {file.name}: {str(e)}")
+
+    def navigate_to_payment_detail(self):
+        """Navigate to the payment detail page"""
+        try:
+            # Find and click the payment detail link
+            payment_link = self.wait.until(
+                EC.element_to_be_clickable(
+                    (By.XPATH, "//a[contains(text(), '[付款明細]')]")
+                )
+            )
+            payment_link.click()
+            
+            # Wait for the filter form to be present
+            self.wait.until(
+                EC.presence_of_element_located((By.NAME, "date1"))
+            )
+            
+            logger.info("Successfully navigated to payment details page")
+            
+        except TimeoutException:
+            logger.error("Timeout waiting for payment detail page elements")
+            self.save_screenshot("payment_detail_navigation_error")
+            raise
+        except Exception as e:
+            logger.error(f"Failed to navigate to payment detail: {str(e)}")
+            self.save_screenshot("payment_detail_navigation_error")
+            raise   
+
+    def set_payment_filter(self):
+        """Set date filter for payment detail report"""
+        try:
+            # Get date values for previous month
+            date_values = self.filter_month_generator()
+            year = date_values['year']
+            month = int(date_values['month'])
+            
+            # Get the last day of the month
+            last_day = calendar.monthrange(year, month)[1]
+            
+            logger.debug(f"Setting date range for year: {year}, month: {month}")
+            
+            # Set start date (1st of month)
+            # Click first calendar icon
+            start_calendar = self.wait.until(
+                EC.element_to_be_clickable((By.XPATH, 
+                    "//input[@name='date1']/following-sibling::a/img[@src='date.gif']"
+                ))
+            )
+            start_calendar.click()
+            
+            # Click the previous month arrow
+            prev_month = self.wait.until(
+                EC.element_to_be_clickable((By.XPATH, "//img[@src='previ.gif']"))
+            )
+            prev_month.click()
+            
+            # Select day 1
+            start_date = self.wait.until(
+                EC.element_to_be_clickable((By.XPATH, 
+                    "//a[contains(@href, 'javascript:yxPickDate(1)')]/span[text()='1']"
+                ))
+            )
+            start_date.click()
+            
+            # Small delay between date selections
+            time.sleep(1)
+            
+            # Set end date (last day of month)
+            # Click second calendar icon
+            end_calendar = self.wait.until(
+                EC.element_to_be_clickable((By.XPATH, 
+                    "//input[@name='date2']/following-sibling::a/img[@src='date.gif']"
+                ))
+            )
+            end_calendar.click()
+            
+            # Click the previous month arrow again
+            prev_month = self.wait.until(
+                EC.element_to_be_clickable((By.XPATH, "//img[@src='previ.gif']"))
+            )
+            prev_month.click()
+            
+            # Select the last day
+            end_date = self.wait.until(
+                EC.element_to_be_clickable((By.XPATH, 
+                    f"//a[contains(@href, 'javascript:yxPickDate({last_day})')]/span[text()='{last_day}']"
+                ))
+            )
+            end_date.click()
+            
+            # Click submit button
+            submit_button = self.wait.until(
+                EC.element_to_be_clickable((By.XPATH, "//input[@value='確定'][@name='B1']"))
+            )
+            submit_button.click()
+            
+            logger.info(f"Successfully set payment filter for period: 1-{month:02d}-{year} to {last_day}-{month:02d}-{year}")
+            
+        except TimeoutException:
+            logger.error("Timeout waiting for payment filter elements")
+            self.save_screenshot("payment_filter_error")
+            raise
+        except Exception as e:
+            logger.error(f"Failed to set payment filter: {str(e)}")
+            self.save_screenshot("payment_filter_error")
+            raise
+
+    def extract_payment_table_data(self, table_index=1, sheet_name="Table Data"):
+        """Generic function to extract table data from a page
+        Args:
+            table_index: Which table to extract (0-based index)
+            sheet_name: Name of the sheet for Excel export
+        Returns:
+            DataFrame if data exists, None if no data found
+        """
+        try:
+            # Wait for new tab to open
+            time.sleep(3)
+            
+            # Get all window handles and switch to the new tab
+            handles = self.driver.window_handles
+            logger.debug(f"Found {len(handles)} browser windows")
+            
+            if len(handles) < 2:
+                # No new tab means no data
+                logger.info("No payment data found for the selected period")
+                return None
+            
+            # Switch to the new tab (last opened)
+            self.driver.switch_to.window(handles[-1])
+            logger.debug(f"Switched to new tab with URL: {self.driver.current_url}")
+            
+            # Find all tables in the new tab
+            tables = self.driver.find_elements(By.TAG_NAME, "table")
+            logger.debug(f"Found {len(tables)} tables on page")
+            
+            if len(tables) < 2:
+                logger.info("No payment data table found")
+                self.driver.close()
+                self.driver.switch_to.window(handles[0])
+                return None
+            
+            target_table = tables[table_index]  # Use second table
+            
+            # Get headers
+            headers = []
+            header_row = target_table.find_element(By.TAG_NAME, "tr")
+            for th in header_row.find_elements(By.TAG_NAME, "td"):
+                headers.append(th.text.strip())
+            
+            # Get all rows except header
+            rows = target_table.find_elements(By.TAG_NAME, "tr")[1:]  # Skip header row
+            
+            # Check if there are any data rows
+            if not rows:
+                logger.info("No payment records found (empty table)")
+                self.driver.close()
+                self.driver.switch_to.window(handles[0])
+                return None
+                
+            # Process data rows
+            data = []
+            for row in rows:
+                cells = row.find_elements(By.TAG_NAME, "td")
+                row_data = [cell.text.strip() for cell in cells]
+                if any(row_data):  # Only add non-empty rows
+                    data.append(row_data)
+            
+            # If no valid data rows were found
+            if not data:
+                logger.info("No payment records found (no valid data rows)")
+                self.driver.close()
+                self.driver.switch_to.window(handles[0])
+                return None
+                
+            # Create DataFrame
+            df = pd.DataFrame(data, columns=headers)
+            
+            # Convert numeric columns (金額)
+            if '金額' in df.columns:
+                df['金額'] = df['金額'].str.replace(',', '').astype(float)
+            
+            # Convert date columns (日期, 到期日) - handle YYYYMMDD format
+            date_columns = ['日期', '到期日']
+            for col in date_columns:
+                if col in df.columns:
+                    # First try YYYYMMDD format
+                    df[col] = pd.to_datetime(df[col], format='%Y%m%d', errors='coerce')
+                    # If any dates failed to parse, try YYYY/MM/DD as fallback
+                    mask = df[col].isna()
+                    if mask.any():
+                        df.loc[mask, col] = pd.to_datetime(
+                            df.loc[mask, col], 
+                            format='%Y/%m/%d', 
+                            errors='coerce'
+                        )
+            
+            logger.info(f"Successfully extracted {len(df)} payment records")
+            
+            # Close the tab and switch back
+            self.driver.close()
+            self.driver.switch_to.window(handles[0])
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Failed to extract table data: {str(e)}\nTraceback: {traceback.format_exc()}")
+            self.save_screenshot("table_extract_error")
+            # Make sure we switch back to main window even if there's an error
+            if len(self.driver.window_handles) > 1:
+                self.driver.close()
+                self.driver.switch_to.window(handles[0])
+            raise
+
+    def process_payment_detail(self, excel_path):
+        """Process payment detail report"""
+        try:
+            # Extract the payment detail table
+            df = self.extract_payment_table_data(table_index=1, sheet_name="Payment Details")
+            
+            # If no data was found, return without creating sheet
+            if df is None:
+                logger.info("No payment data to process")
+                return None
+            
+            # Only create Excel sheet if we have data
+            if not df.empty:
+                with pd.ExcelWriter(str(excel_path), engine='openpyxl', mode='a') as writer:
+                    sheet_name = "Payment Details"
+                    
+                    # Remove sheet if it exists
+                    if sheet_name in writer.book.sheetnames:
+                        idx = writer.book.sheetnames.index(sheet_name)
+                        writer.book.remove(writer.book.worksheets[idx])
+                    
+                    df.to_excel(
+                        writer,
+                        sheet_name=sheet_name,
+                        index=False
+                    )
+                    
+                    logger.info(f"Successfully exported {len(df)} payment details to sheet in {excel_path}")
+            else:
+                logger.info("No payment data to export")
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Failed to process payment detail: {str(e)}")
+            self.save_screenshot("payment_detail_error")
             raise
 
 # Custom exception for security-related errors

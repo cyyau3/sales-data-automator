@@ -115,6 +115,7 @@ def perform_ucd_automation(config):
         # Payment menu and discount reports
         navigator.return_to_index()
         logger.info("Processing discount reports...")
+        navigator.clean_downloads_directory()
         navigator.navigate_to_payment_menu()
         navigator.navigate_to_discount_detail()
         navigator.set_discount_filter()
@@ -122,6 +123,17 @@ def perform_ucd_automation(config):
         # Process main discount table and detail reports
         navigator.process_discount_report(str(excel_path))
         logger.info("Completed processing discount reports")
+
+        # Process UCD payment detail
+        navigator.return_to_index()
+        navigator.navigate_to_payment_menu()
+        navigator.navigate_to_payment_detail()
+        navigator.set_payment_filter()
+        result = navigator.process_payment_detail(str(excel_path))
+        if result is None:
+            logger.info("No payment details found for the period")
+        else:
+            logger.info(f"Successfully processed {len(result)} payment details")
 
         logger.info(f"All reports exported to {excel_path}")
         return navigator
@@ -136,17 +148,13 @@ def main():
         # Load configuration
         config = load_config()
         
-        # Perform automation and keep browser open
+        # Perform automation
         navigator = perform_ucd_automation(config)
         
-        # Keep the script running until user input
-        while True:
-            user_input = input("\nIn this terminal, enter 'q' to logout and quit, or press Enter to keep browsing: ").lower()
-            if user_input == 'q':
-                logger.info("Initiating logout sequence...")
-                navigator.logout_and_quit()  # This already includes closing the browser
-                logger.info("Successfully logged out and closed browser")
-                break
+        # Automatically logout and close browser
+        logger.info("Initiating logout sequence...")
+        navigator.logout_and_quit()  # This already includes closing the browser
+        logger.info("Successfully logged out and closed browser")
         
     except Exception as e:
         logger.error(f"Error in main execution: {str(e)}")
