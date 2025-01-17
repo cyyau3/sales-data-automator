@@ -1689,17 +1689,6 @@ class WebNavigator:
             logger.error(f"Failed to process discount report: {str(e)}")
             self.save_screenshot("discount_report_error")
             raise
-    
-    def clean_downloads_directory(self):
-        """Clean up all files in the downloads directory."""
-        downloads_dir = Path(self.downloads_dir)
-        for file in downloads_dir.glob('*'):
-            if file.is_file():
-                try:
-                    file.unlink()
-                    logger.debug(f"Cleaned up file: {file.name}")
-                except Exception as e:
-                    logger.warning(f"Failed to clean up file {file.name}: {str(e)}")
 
     def navigate_to_payment_detail(self):
         """Navigate to the payment detail page"""

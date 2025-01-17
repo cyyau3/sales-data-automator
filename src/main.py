@@ -115,7 +115,6 @@ def perform_ucd_automation(config):
         # Payment menu and discount reports
         navigator.return_to_index()
         logger.info("Processing discount reports...")
-        navigator.clean_downloads_directory()
         navigator.navigate_to_payment_menu()
         navigator.navigate_to_discount_detail()
         navigator.set_discount_filter()
