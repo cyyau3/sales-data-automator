@@ -1,4 +1,4 @@
-# Sales Data Automation
+# Sales Data Automator
 
 Automates the process of extracting sales and inventory data from UCD website. This tool automatically logs in, navigates through the UCD interface, and exports data to Excel files.
 
