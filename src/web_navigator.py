@@ -189,7 +189,7 @@ class WebNavigator:
             # Return both separate and combined formats
             return {
                 'year': year,
-                'month': str(month).zfill(2),
+                'month': str(month),
                 'combined': f"{year}{str(month).zfill(2)}"  # e.g., "202410"
             }
             
@@ -1572,12 +1572,10 @@ class WebNavigator:
                             )
                             logger.info(f"Added detail sheet: {link_data['category']}")
                         
-                        # Clean up downloaded file
-                        try:
-                            os.remove(download_path)
-                            logger.debug(f"Cleaned up downloaded file: {download_path}")
-                        except Exception as e:
-                            logger.warning(f"Could not remove downloaded file: {e}")
+                        # Move cleanup to after successful processing
+                        os.remove(download_path)
+                        if file.exists():
+                            file.unlink()
                     
                     # Make sure we're on the correct window
                     if self.driver.current_window_handle != current_window:
@@ -1642,70 +1640,39 @@ class WebNavigator:
                 try:
                     # Convert using LibreOffice
                     converted_path = self.process_downloaded_excel(file)
-                    if converted_path:
-                        # Read the Excel file with header=None to handle merged cells
-                        df = pd.read_excel(converted_path, header=None)
-                        
-                        # Check if first row contains merged cells
-                        first_row = df.iloc[0]
-                        has_merged_header = first_row.isna().any()
-                        
-                        if has_merged_header:
-                            # Get the first non-null value from the merged header
-                            header_title = first_row.dropna().iloc[0]
-                            logger.debug(f"Found merged header: {header_title}")
-                            
-                            # Skip the merged header row and use second row as column names
-                            df = pd.read_excel(converted_path, header=1)
-                        else:
-                            # No merged cells, read normally
-                            df = pd.read_excel(converted_path)
-                        
-                        # Get category name from filename
-                        category = os.path.splitext(file.name)[0].replace("discount_", "")
-                        sheet_name = f"Discount_{category}"
-                        
-                        # Append to main Excel
-                        with pd.ExcelWriter(str(excel_path), engine='openpyxl', mode='a') as writer:
-                            if sheet_name in writer.book.sheetnames:
-                                idx = writer.book.sheetnames.index(sheet_name)
-                                writer.book.remove(writer.book.worksheets[idx])
-                            
-                            df.to_excel(
-                                writer,
-                                sheet_name=sheet_name,
-                                index=False
-                            )
-                            
-                            # If there was a merged header, add it back with bold formatting
-                            if has_merged_header:
-                                worksheet = writer.book[sheet_name]
-                                # Merge cells in first row
-                                worksheet.insert_rows(0)
-                                first_cell = worksheet.cell(row=1, column=1)
-                                first_cell.value = header_title
-                                
-                                # Apply bold formatting to merged header
-                                first_cell.font = Font(bold=True)
-                                
-                                # Merge cells and center align
-                                worksheet.merge_cells(start_row=1, start_column=1, 
-                                                   end_row=1, end_column=len(df.columns))
-                                first_cell.alignment = Alignment(horizontal='center')
-                        
-                            logger.info(f"Added discount detail sheet: {sheet_name}")
-                        
-                            # Cleanup converted file
-                            os.remove(converted_path)
+                    if not converted_path:  # Add check for conversion failure
+                        raise Exception(f"Failed to convert file: {file}")
                     
-                except Exception as e:
-                    logger.error(f"Failed to process detail file {file}: {str(e)}")
-                    continue
-                finally:
-                    # Cleanup original file
+                    # Read the Excel file with header=None to handle merged cells
+                    df = pd.read_excel(converted_path, header=None)
+                    
+                    # Get category name from filename
+                    category = os.path.splitext(file.name)[0].replace("discount_", "")
+                    sheet_name = f"Discount_{category}"
+                    
+                    # Append to main Excel
+                    with pd.ExcelWriter(str(excel_path), engine='openpyxl', mode='a') as writer:
+                        if sheet_name in writer.book.sheetnames:
+                            idx = writer.book.sheetnames.index(sheet_name)
+                            writer.book.remove(writer.book.worksheets[idx])
+                        
+                        df.to_excel(
+                            writer,
+                            sheet_name=sheet_name,
+                            index=False
+                        )
+                        
+                        logger.info(f"Added discount detail sheet: {sheet_name}")
+                    
+                    # Move cleanup to after successful processing
+                    os.remove(converted_path)
                     if file.exists():
                         file.unlink()
                     
+                except Exception as e:
+                    logger.error(f"Failed to process detail file {file}: {str(e)}")
+                    raise  # Re-raise the exception instead of continuing
+            
             logger.info(f"Successfully exported discount details to {excel_path}")
             return excel_path
         
