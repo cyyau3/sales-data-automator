@@ -1640,13 +1640,26 @@ class WebNavigator:
                 try:
                     # Convert using LibreOffice
                     converted_path = self.process_downloaded_excel(file)
-                    if not converted_path:  # Add check for conversion failure
+                    if not converted_path:
                         raise Exception(f"Failed to convert file: {file}")
                     
-                    # Read the Excel file with header=None to handle merged cells
-                    df = pd.read_excel(converted_path, header=None)
+                    # First, check if there's a title row by reading without headers
+                    df_check = pd.read_excel(converted_path, header=None)
+                    first_row = df_check.iloc[0]
+                    has_title = first_row.isna().any()  # If there are any NaN values, it's likely a title row
                     
-                    # Get category name from filename
+                    if has_title:
+                        # Get the title (first non-null value in first row)
+                        title = first_row.dropna().iloc[0]
+                        # Read the file with the second row as headers
+                        df = pd.read_excel(converted_path, header=1)
+                    else:
+                        # Read normally with first row as headers
+                        df = pd.read_excel(converted_path)
+                        # Get title from filename
+                        title = os.path.splitext(file.name)[0].replace("discount_", "")
+                    
+                    # Get category name from filename for sheet name
                     category = os.path.splitext(file.name)[0].replace("discount_", "")
                     sheet_name = f"Discount_{category}"
                     
@@ -1656,11 +1669,26 @@ class WebNavigator:
                             idx = writer.book.sheetnames.index(sheet_name)
                             writer.book.remove(writer.book.worksheets[idx])
                         
+                        # Write the DataFrame
                         df.to_excel(
                             writer,
                             sheet_name=sheet_name,
-                            index=False
+                            index=False,
+                            startrow=1  # Start from second row to leave space for title
                         )
+                        
+                        # Get the worksheet and add the title
+                        worksheet = writer.book[sheet_name]
+                        worksheet.cell(row=1, column=1, value=title)
+                        
+                        # Merge cells for the title
+                        worksheet.merge_cells(start_row=1, start_column=1, 
+                                           end_row=1, end_column=len(df.columns))
+                        
+                        # Center align the title
+                        title_cell = worksheet.cell(row=1, column=1)
+                        title_cell.alignment = Alignment(horizontal='center')
+                        title_cell.font = Font(bold=True)
                         
                         logger.info(f"Added discount detail sheet: {sheet_name}")
                     
@@ -1668,10 +1696,10 @@ class WebNavigator:
                     os.remove(converted_path)
                     if file.exists():
                         file.unlink()
-                    
+                
                 except Exception as e:
                     logger.error(f"Failed to process detail file {file}: {str(e)}")
-                    raise  # Re-raise the exception instead of continuing
+                    raise
             
             logger.info(f"Successfully exported discount details to {excel_path}")
             return excel_path
