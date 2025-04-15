@@ -137,8 +137,4 @@ Sales_Data_Automation/
 
 ## License
 
-[Your chosen license]
-
-## Contact
-
-[Your contact information]
+This project is licensed under the [MIT License](LICENSE).
