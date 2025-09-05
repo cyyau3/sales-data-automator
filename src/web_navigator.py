@@ -5,6 +5,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
 from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import StaleElementReferenceException
 from logger_config import logger
 from datetime import datetime
 import pandas as pd
@@ -534,12 +535,25 @@ class WebNavigator:
                 ).click()
             
             # Submit form
+            # Capture the old table (if present) so we can wait for it to go stale after submit
+            old_table = None
+            try:
+                old_table = self.driver.find_element(By.XPATH, "//table[@bgcolor='#008080']")
+            except Exception:
+                old_table = None
+
             submit_button = self.wait.until(
                 EC.element_to_be_clickable((By.NAME, "B1"))
             )
             submit_button.click()
-            
-            # Wait for results table
+
+            # Ensure the old table is detached, then wait for the new table
+            if old_table is not None:
+                try:
+                    self.wait.until(EC.staleness_of(old_table))
+                except Exception:
+                    pass
+
             self.wait.until(
                 EC.presence_of_element_located((By.XPATH, "//table[@bgcolor='#008080']"))
             )
@@ -552,70 +566,84 @@ class WebNavigator:
             raise
 
     def extract_analysis_table(self):
-        """Extract data from analysis report table based on current filter"""
-        try:
-            # Wait for table to be present
-            table = self.wait.until(
-                EC.presence_of_element_located((By.XPATH, "//table[@bgcolor='#008080']"))
-            )
+        """Extract data from analysis report table based on current filter (stale-safe with retries)"""
+        attempts = 0
+        last_err = None
+        while attempts < 3:
+            try:
+                attempts += 1
+                # Wait for table to be present and then snapshot its HTML immediately
+                table = self.wait.until(
+                    EC.presence_of_element_located((By.XPATH, "//table[@bgcolor='#008080']"))
+                )
             
-            # Get headers
-            headers = []
-            header_row = table.find_element(By.TAG_NAME, "tr")
-            for th in header_row.find_elements(By.TAG_NAME, "td"):
-                headers.append(th.text.strip())
-            
-            # Initialize lists to store data
-            data = []
-            
-            # Get all rows except header
-            rows = table.find_elements(By.TAG_NAME, "tr")[1:]  # Skip header row
-            
-            # Process regular rows
-            for row in rows:
-                cells = row.find_elements(By.TAG_NAME, "td")
-                row_data = []
-                
-                # Check if this is the total row
-                is_total = False
-                if cells[0].get_attribute("bgcolor") == "#CCFF66":
-                    is_total = True
-                
-                for cell in cells:
-                    value = cell.text.strip()
-                    # If it's a total row and the cell spans multiple columns
-                    if is_total and cell.get_attribute("colspan"):
-                        row_data.append("合計")  # Add '合計' for the first column
-                        # Add empty strings for spanned columns
-                        for _ in range(int(cell.get_attribute("colspan")) - 1):
-                            row_data.append("")
-                    else:
-                        row_data.append(value)
-                        
-                if row_data:  # Only add non-empty rows
-                    data.append(row_data)
-            
-            # Create DataFrame
-            df = pd.DataFrame(data, columns=headers)
-            
-            # Convert numeric columns
-            numeric_columns = ['出量', '退量', '淨量']
-            for col in numeric_columns:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(df[col].replace('', '0'), errors='coerce')
-            
-            # Convert 退率 (return rate) - remove % and convert to numeric
-            if '退率' in df.columns:
-                df['退率'] = df['退率'].replace('', '0')
-                df['退率'] = df['退率'].str.rstrip('%').astype(float)
-            
-            logger.info(f"Successfully extracted {len(df)} analysis records")
-            return df
-                
-        except Exception as e:
-            logger.error(f"Failed to extract analysis table: {str(e)}")
-            self.save_screenshot("analysis_table_extraction_error")
-            raise
+                # Build headers by reading the first row fresh each time
+                header_row = table.find_element(By.TAG_NAME, "tr")
+                headers = [td.text.strip() for td in header_row.find_elements(By.TAG_NAME, "td")]
+
+                # Gather rows
+                data = []
+                rows = table.find_elements(By.TAG_NAME, "tr")[1:]  # Skip header row
+
+                for row in rows:
+                    cells = row.find_elements(By.TAG_NAME, "td")
+                    if not cells:
+                        continue
+
+                    # Detect total row based on bgcolor of first cell
+                    is_total = False
+                    try:
+                        if cells[0].get_attribute("bgcolor") == "#CCFF66":
+                            is_total = True
+                    except StaleElementReferenceException:
+                        # If this cell went stale mid-loop, refetch the table and retry the whole attempt
+                        raise
+
+                    row_data = []
+                    for cell in cells:
+                        value = cell.text.strip()
+                        if is_total and cell.get_attribute("colspan"):
+                            # First cell in total row spans multiple columns; normalize to one "合計" token
+                            row_data.append("合計")
+                            for _ in range(int(cell.get_attribute("colspan")) - 1):
+                                row_data.append("")
+                        else:
+                            row_data.append(value)
+
+                    if row_data:
+                        data.append(row_data)
+
+                # Create DataFrame
+                df = pd.DataFrame(data, columns=headers)
+
+                # Convert numeric columns where applicable
+                for col in ['出量', '退量', '淨量']:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col].replace('', '0'), errors='coerce')
+
+                if '退率' in df.columns:
+                    df['退率'] = df['退率'].replace('', '0')
+                    df['退率'] = df['退率'].str.rstrip('%').astype(float)
+
+                logger.info(f"Successfully extracted {len(df)} analysis records (attempt {attempts})")
+                return df
+
+            except StaleElementReferenceException as e:
+                last_err = e
+                logger.warning(f"Stale element while extracting analysis table (attempt {attempts}); retrying...")
+                time.sleep(0.5)
+                continue
+            except Exception as e:
+                last_err = e
+                logger.error(f"Failed to extract analysis table on attempt {attempts}: {str(e)}")
+                break
+
+        # If we reach here, all attempts failed
+        self.save_screenshot("analysis_table_extraction_error")
+        if last_err:
+            raise last_err
+        else:
+            raise Exception("Failed to extract analysis table for unknown reasons")
 
     def export_to_excel(self, df, report_type, title=None, excel_path=None):
         """Export the DataFrame to Excel with report type specification and optional title
@@ -1642,33 +1670,68 @@ class WebNavigator:
                     converted_path = self.process_downloaded_excel(file)
                     if not converted_path:
                         raise Exception(f"Failed to convert file: {file}")
-                    
-                    # First, check if there's a title row by reading without headers
+
+                    # First, check if there's a title row by reading without headers (defensive)
                     df_check = pd.read_excel(converted_path, header=None)
+
+                    # If the converted file is empty or has no rows, skip it gracefully
+                    if df_check is None or df_check.empty:
+                        logger.info(f"Converted detail file appears empty; skipping: {converted_path}")
+                        try:
+                            os.remove(converted_path)
+                        except Exception:
+                            pass
+                        continue
+
+                    # Safely get first row
                     first_row = df_check.iloc[0]
-                    has_title = first_row.isna().any()  # If there are any NaN values, it's likely a title row
-                    
+
+                    # Heuristic: title row often has a mix of values/NaN; treat as title row only if it has at least
+                    # one non-null AND at least one null entry. If the entire first row is null, treat as empty.
+                    if first_row.isna().all():
+                        logger.info(f"First row is fully empty; skipping file: {converted_path}")
+                        try:
+                            os.remove(converted_path)
+                        except Exception:
+                            pass
+                        continue
+
+                    has_title = first_row.notna().any() and first_row.isna().any()
+
                     if has_title:
-                        # Get the title (first non-null value in first row)
-                        title = first_row.dropna().iloc[0]
+                        # Try to extract a reasonable title token from the first non-null cell; fallback to filename
+                        non_null = first_row.dropna()
+                        title = str(non_null.iloc[0]) if not non_null.empty else os.path.splitext(file.name)[0].replace("discount_", "")
                         # Read the file with the second row as headers
                         df = pd.read_excel(converted_path, header=1)
                     else:
                         # Read normally with first row as headers
-                        df = pd.read_excel(converted_path)
-                        # Get title from filename
+                        df = pd.read_excel(converted_path, header=0)
                         title = os.path.splitext(file.name)[0].replace("discount_", "")
-                    
+
+                    # Drop fully-empty rows/columns that sometimes appear due to export quirks
+                    df = df.dropna(how='all')
+                    df = df.loc[:, ~df.columns.astype(str).str.contains('^Unnamed')]
+
+                    # If still empty after cleanup, skip creating a sheet
+                    if df.empty:
+                        logger.info(f"Detail DataFrame empty after cleanup; skipping sheet for: {converted_path}")
+                        try:
+                            os.remove(converted_path)
+                        except Exception:
+                            pass
+                        continue
+
                     # Get category name from filename for sheet name
                     category = os.path.splitext(file.name)[0].replace("discount_", "")
                     sheet_name = f"Discount_{category}"
-                    
+
                     # Append to main Excel
                     with pd.ExcelWriter(str(excel_path), engine='openpyxl', mode='a') as writer:
                         if sheet_name in writer.book.sheetnames:
                             idx = writer.book.sheetnames.index(sheet_name)
                             writer.book.remove(writer.book.worksheets[idx])
-                        
+
                         # Write the DataFrame
                         df.to_excel(
                             writer,
@@ -1676,27 +1739,27 @@ class WebNavigator:
                             index=False,
                             startrow=1  # Start from second row to leave space for title
                         )
-                        
+
                         # Get the worksheet and add the title
                         worksheet = writer.book[sheet_name]
                         worksheet.cell(row=1, column=1, value=title)
-                        
+
                         # Merge cells for the title
-                        worksheet.merge_cells(start_row=1, start_column=1, 
+                        worksheet.merge_cells(start_row=1, start_column=1,
                                            end_row=1, end_column=len(df.columns))
-                        
+
                         # Center align the title
                         title_cell = worksheet.cell(row=1, column=1)
                         title_cell.alignment = Alignment(horizontal='center')
                         title_cell.font = Font(bold=True)
-                        
+
                         logger.info(f"Added discount detail sheet: {sheet_name}")
-                    
+
                     # Move cleanup to after successful processing
                     os.remove(converted_path)
                     if file.exists():
                         file.unlink()
-                
+
                 except Exception as e:
                     logger.error(f"Failed to process detail file {file}: {str(e)}")
                     raise
